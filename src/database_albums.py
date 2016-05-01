@@ -600,11 +600,10 @@ class AlbumsDatabase:
                                   FROM albums, artists, album_artists\
                                   WHERE artists.rowid=album_artists.artist_id\
                                   AND albums.rowid=album_artists.album_id\
-                                  ORDER BY artists.sortname\
-                                  COLLATE NOCASE COLLATE LOCALIZED,\
-                                  albums.year,\
-                                  albums.name\
-                                  COLLATE NOCASE COLLATE LOCALIZED")
+                                  ORDER BY albums.name\
+                                  COLLATE NOCASE,\
+                                  albums.year\
+                                  COLLATE NOCASE")
             # Get albums for genre
             elif not artist_ids:
                 genres = tuple(genre_ids)
