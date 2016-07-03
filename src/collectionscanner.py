@@ -222,11 +222,13 @@ class CollectionScanner(GObject.GObject, ScannerTagReader):
         artists = self.get_artists(tags)
         composers = self.get_composers(tags)
         performers = self.get_performers(tags)
-        sortnames = self.get_artist_sortnames(tags)
+        a_sortnames = self.get_artist_sortnames(tags)
+        aa_sortnames = self.get_album_artist_sortnames(tags)
         album_artists = self.get_album_artist(tags)
         album_name = self.get_album_name(tags)
         genres = self.get_genres(tags)
         discnumber = self.get_discnumber(tags)
+        discname = self.get_discname(tags)
         tracknumber = self.get_tracknumber(tags)
         year = self.get_year(tags)
         duration = int(infos.get_duration()/1000000000)
@@ -255,11 +257,12 @@ class CollectionScanner(GObject.GObject, ScannerTagReader):
         debug("CollectionScanner::add2db(): Add artists %s" % artists)
         (artist_ids, new_artist_ids) = self.add_artists(artists,
                                                         album_artists,
-                                                        sortnames)
+                                                        a_sortnames)
         debug("CollectionScanner::add2db(): "
               "Add album artists %s" % album_artists)
         (album_artist_ids, new_album_artist_ids) = self.add_album_artists(
-                                                                 album_artists)
+                                                                 album_artists,
+                                                                 aa_sortnames)
         new_artist_ids += new_album_artist_ids
 
         debug("CollectionScanner::add2db(): Add album: "
@@ -273,7 +276,7 @@ class CollectionScanner(GObject.GObject, ScannerTagReader):
         # Add track to db
         debug("CollectionScanner::add2db(): Add track")
         track_id = Lp().tracks.add(title, filepath, duration,
-                                   tracknumber, discnumber,
+                                   tracknumber, discnumber, discname,
                                    album_id, year, track_pop,
                                    track_ltime, mtime)
 

@@ -246,7 +246,7 @@ class MPRIS(Server):
             return GLib.Variant('x', Lp().player.position / 60)
         elif property_name in ["CanGoNext", "CanGoPrevious",
                                "CanPlay", "CanPause"]:
-            return GLib.Variant('b', True)
+            return GLib.Variant('b', Lp().player.current_track.id is not None)
 
     def GetAll(self, interface):
         ret = {}
@@ -352,18 +352,19 @@ class MPRIS(Server):
                                 Lp().player.current_track.get_popularity() / 5)
             if Lp().player.current_track.id == Type.RADIOS:
                 cover_path = Lp().art.get_radio_cache_path(
-                     ", ".join(Lp().player.current_track.artists), ArtSize.BIG)
+                     ", ".join(Lp().player.current_track.artists),
+                     ArtSize.MONSTER)
             elif Lp().player.current_track.id == Type.EXTERNALS:
                 cover_path = "/tmp/lollypop_mpris.jpg"
                 pixbuf = Lp().art.pixbuf_from_tags(
                     GLib.filename_from_uri(Lp().player.current_track.uri)[0],
-                    ArtSize.BIG)
+                    ArtSize.MONSTER)
                 if pixbuf is not None:
                     pixbuf.savev(cover_path, "jpeg",
                                  ["quality"], ["90"])
             else:
                 cover_path = Lp().art.get_album_cache_path(
-                    Lp().player.current_track.album, ArtSize.BIG)
+                    Lp().player.current_track.album, ArtSize.MONSTER)
             if cover_path is not None:
                 self._metadata['mpris:artUrl'] = GLib.Variant(
                                                         's',
@@ -384,7 +385,9 @@ class MPRIS(Server):
         self._update_metadata()
         properties = {'Metadata': GLib.Variant('a{sv}', self._metadata),
                       'CanPlay': GLib.Variant('b', True),
-                      'CanPause': GLib.Variant('b', True)}
+                      'CanPause': GLib.Variant('b', True),
+                      'CanGoNext': GLib.Variant('b', True),
+                      'CanGoPrevious': GLib.Variant('b', True)}
         try:
             self.PropertiesChanged(self._MPRIS_PLAYER_IFACE, properties, [])
         except Exception as e:

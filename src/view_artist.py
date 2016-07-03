@@ -14,6 +14,7 @@ from gi.repository import Gtk, Gdk, Pango
 
 from gettext import gettext as _
 from math import pi
+from cgi import escape
 
 from lollypop.define import Lp, ArtSize
 from lollypop.objects import Track, Album
@@ -48,22 +49,31 @@ class ArtistView(ArtistAlbumsView):
         self._jump_button = builder.get_object('jump-button')
         self._jump_button.set_tooltip_text(_("Go to current track"))
         self._add_button = builder.get_object('add-button')
+        self._play_button = builder.get_object('play-button')
         self._grid = builder.get_object('header-grid')
-        self._spinner = builder.get_object('spinner')
         header = builder.get_object('header')
         header.set_property('valign', Gtk.Align.START)
         self._overlay.add_overlay(header)
         self._empty = Gtk.Grid()
         self._empty.show()
         self._albumbox.add(self._empty)
+        self._albumbox.set_row_spacing(20)
 
         self._set_artwork()
         self._set_add_icon()
+        self._on_lock_changed(Lp().player)
 
         artists = []
         for artist_id in artist_ids:
             artists.append(Lp().artists.get_name(artist_id))
-        self._label.set_label(", ".join(artists))
+        if Lp().settings.get_value('artist-artwork'):
+            self._label.set_markup("<span size='x-large' weight='bold'>" +
+                                   escape(", ".join(artists)) +
+                                   "</span>")
+        else:
+            self._label.set_markup("<span size='large' weight='bold'>" +
+                                   escape(", ".join(artists)) +
+                                   "</span>")
 
     def jump_to_current(self):
         """
@@ -166,7 +176,13 @@ class ArtistView(ArtistAlbumsView):
         self._art_signal_id = Lp().art.connect('artist-artwork-changed',
                                                self._on_artist_artwork_changed)
         self._party_signal_id = Lp().player.connect('party-changed',
-                                                    self._on_party_changed)
+                                                    self._on_album_changed)
+        self._added_signal_id = Lp().player.connect('album-added',
+                                                    self._on_album_changed)
+        self._removed_signal_id = Lp().player.connect('album-removed',
+                                                      self._on_album_changed)
+        self._lock_signal_id = Lp().player.connect('lock-changed',
+                                                   self._on_lock_changed)
 
     def _on_unrealize(self, widget):
         """
@@ -179,16 +195,31 @@ class ArtistView(ArtistAlbumsView):
         if self._party_signal_id is not None:
             Lp().player.disconnect(self._party_signal_id)
             self._party_signal_id = None
+        if self._added_signal_id is not None:
+            Lp().player.disconnect(self._added_signal_id)
+            self._added_signal_id = None
+        if self._removed_signal_id is not None:
+            Lp().player.disconnect(self._removed_signal_id)
+            self._removed_signal_id = None
+        if self._lock_signal_id is not None:
+            Lp().player.disconnect(self._lock_signal_id)
+            self._lock_signal_id = None
 
-    def _on_party_changed(self, player, party):
+    def _on_album_changed(self, player, unused):
         """
             Update add icon
             @param player as Player
-            @param party as bool
+            @param unused
         """
-        # Leaving party doesn't change album list
-        if party:
-            self._set_add_icon()
+        self._set_add_icon()
+
+    def _on_lock_changed(self, player):
+        """
+            Lock buttons
+            @param player as Player
+        """
+        self._add_button.set_sensitive(not player.locked)
+        self._play_button.set_sensitive(not player.locked)
 
     def _on_artist_artwork_changed(self, art, prefix):
         """
@@ -196,7 +227,10 @@ class ArtistView(ArtistAlbumsView):
             @param art as Art
             @param prefix as str
         """
-        self._set_artwork()
+        artist = Lp().artists.get_name(self._artist_ids[0])
+        if prefix == artist:
+            self._artwork.clear()
+            self._set_artwork()
 
     def _on_jump_button_clicked(self, widget):
         """
@@ -211,15 +245,16 @@ class ArtistView(ArtistAlbumsView):
         """
         ArtistAlbumsView._on_value_changed(self, adj)
         if adj.get_value() == adj.get_lower():
-            if Lp().settings.get_value('artist-artwork'):
+            if self._artwork.get_pixbuf() is not None:
                 self._artwork.show()
                 self._artwork_box.show()
             self._grid.get_style_context().remove_class('header-borders')
             self._grid.get_style_context().add_class('header')
             self._grid.set_property('valign', Gtk.Align.CENTER)
         else:
-            self._artwork.hide()
-            self._artwork_box.hide()
+            if self._artwork.get_pixbuf() is not None:
+                self._artwork.hide()
+                self._artwork_box.hide()
             self._grid.get_style_context().add_class('header-borders')
             self._grid.get_style_context().remove_class('header')
             self._grid.set_property('valign', Gtk.Align.START)
@@ -232,8 +267,6 @@ class ArtistView(ArtistAlbumsView):
             @param scroll value as float
         """
         self._update_jump_button()
-        self._spinner.stop()
-        self._spinner.hide()
         ArtistAlbumsView._on_populated(self, widget, widgets, scroll_value)
 
     def _on_current_changed(self, player):
@@ -288,7 +321,7 @@ class ArtistView(ArtistAlbumsView):
         if Lp().player.is_party():
             Lp().player.set_party(False)
         album_id = Lp().albums.get_ids(self._artist_ids, self._genre_ids)[0]
-        track = Track(Album(album_id).tracks_ids[0])
+        track = Track(Album(album_id).track_ids[0])
         Lp().player.load(track)
         Lp().player.set_albums(track.id, self._artist_ids,
                                self._genre_ids)
@@ -303,8 +336,13 @@ class ArtistView(ArtistAlbumsView):
                                                    )[0] == 'list-add-symbolic':
             for album_id in albums:
                 album = Album(album_id)
+                # If playing and no albums, play it
                 if not Lp().player.has_album(album):
-                    Lp().player.add_album(album)
+                    if Lp().player.is_playing() and\
+                            not Lp().player.get_albums():
+                        Lp().player.play_album(album)
+                    else:
+                        Lp().player.add_album(album)
         else:
             for album_id in albums:
                 album = Album(album_id)
@@ -318,6 +356,8 @@ class ArtistView(ArtistAlbumsView):
             @param image as Gtk.Image
             @param ctx as cairo.Context
         """
+        if not image.is_drawable():
+            return
         pixbuf = image.get_pixbuf()
         if pixbuf is None:
             return

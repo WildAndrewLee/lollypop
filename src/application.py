@@ -36,7 +36,7 @@ except Exception as e:
     LastFM = None
 
 from lollypop.utils import is_gnome, is_unity
-from lollypop.define import ArtSize, Type, DataPath
+from lollypop.define import Type, DataPath
 from lollypop.window import Window
 from lollypop.database import Database
 from lollypop.player import Player
@@ -135,9 +135,6 @@ class Application(Gtk.Application):
         styleContext.add_provider_for_screen(screen, cssProvider,
                                              Gtk.STYLE_PROVIDER_PRIORITY_USER)
         self.settings = Settings.new()
-        ArtSize.BIG = self.settings.get_value('cover-size').get_int32()
-        # For a 200 album artwork, we want a 60 artist artwork
-        ArtSize.ARTIST_SMALL = ArtSize.BIG * 60 / 200
         self.db = Database()
         self.playlists = Playlists()
         # We store cursors for main thread
@@ -150,6 +147,7 @@ class Application(Gtk.Application):
         self.player = Player()
         self.scanner = CollectionScanner()
         self.art = Art()
+        self.art.update_art_size()
         if self.settings.get_value('artist-artwork'):
             GLib.timeout_add(5000, self.art.cache_artists_art)
         if LastFM is not None:
@@ -172,8 +170,7 @@ class Application(Gtk.Application):
 
     def do_startup(self):
         """
-            Add startup notification and
-            build gnome-shell menu after Gtk.Application startup
+            Init application
         """
         Gtk.Application.do_startup(self)
         Notify.init("Lollypop")
@@ -244,7 +241,7 @@ class Application(Gtk.Application):
                 playlist_ids = self.player.get_user_playlist_ids()
             dump(playlist_ids,
                  open(DataPath + "/playlist_ids.bin", "wb"))
-        if self.player.is_playing():
+        if self.player.current_track.id is not None:
             position = self.player.position
         else:
             position = 0
@@ -434,6 +431,20 @@ class Application(Gtk.Application):
         about.connect("response", self._about_response)
         about.show()
 
+    def _shortcuts(self, action, param):
+        """
+            Show help in yelp
+            @param action as Gio.SimpleAction
+            @param param as GLib.Variant
+        """
+        try:
+            builder = Gtk.Builder()
+            builder.add_from_resource('/org/gnome/Lollypop/Shortcuts.ui')
+            builder.get_object('shortcuts').set_transient_for(self.window)
+            builder.get_object('shortcuts').show()
+        except:  # GTK < 3.20
+            self._help(action, param)
+
     def _help(self, action, param):
         """
             Show help in yelp
@@ -468,9 +479,7 @@ class Application(Gtk.Application):
             @return menu as Gio.Menu
         """
         builder = Gtk.Builder()
-
         builder.add_from_resource('/org/gnome/Lollypop/Appmenu.ui')
-
         menu = builder.get_object('app-menu')
 
         settingsAction = Gio.SimpleAction.new('settings', None)
@@ -495,8 +504,13 @@ class Application(Gtk.Application):
 
         aboutAction = Gio.SimpleAction.new('about', None)
         aboutAction.connect('activate', self._about)
-        self.set_accels_for_action('app.about', ["F2"])
+        self.set_accels_for_action('app.about', ["F3"])
         self.add_action(aboutAction)
+
+        shortcutsAction = Gio.SimpleAction.new('shortcuts', None)
+        shortcutsAction.connect('activate', self._shortcuts)
+        self.set_accels_for_action('app.shortcuts', ["F2"])
+        self.add_action(shortcutsAction)
 
         helpAction = Gio.SimpleAction.new('help', None)
         helpAction.connect('activate', self._help)

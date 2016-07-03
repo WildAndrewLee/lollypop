@@ -100,8 +100,6 @@ class ShufflePlayer(BasePlayer):
             Play a new random track if not already playing
             @param party as bool
         """
-        if party == self._is_party:
-            return
         self._is_party = party
 
         self.reset_history()
@@ -229,7 +227,7 @@ class ShufflePlayer(BasePlayer):
                 genre_ids = self._context.genre_ids[album_id]
             else:
                 genre_ids = []
-            tracks = Album(album_id, genre_ids).tracks_ids
+            tracks = Album(album_id, genre_ids).track_ids
             for track in sorted(tracks, key=lambda *args: random.random()):
                 if album_id not in self._already_played_tracks.keys() or\
                    track not in self._already_played_tracks[album_id]:
@@ -260,7 +258,7 @@ class ShufflePlayer(BasePlayer):
             On stream start add to shuffle history
         """
         # Add track to shuffle history if needed
-        if self._shuffle != Shuffle.NONE or self._is_party:
+        if self._shuffle == Shuffle.TRACKS or self._is_party:
             if self._history:
                 next = self._history.get_next()
                 prev = self._history.get_prev()

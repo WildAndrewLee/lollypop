@@ -13,6 +13,7 @@
 from gi.repository import Gtk, GLib, Gio
 
 from gettext import gettext as _
+import re
 
 from lollypop.view import View
 from lollypop.widgets_device import DeviceManagerWidget
@@ -29,13 +30,40 @@ class DeviceLocked(View):
         View.__init__(self)
         builder = Gtk.Builder()
         builder.add_from_resource('/org/gnome/Lollypop/DeviceManagerView.ui')
-        self.add(builder.get_object('nodevice'))
+        self.add(builder.get_object('message'))
+        builder.get_object('label').set_text(_("Please unlock your device"))
+
+
+# FIXME Remove this later
+class DeviceMigration(View):
+    """
+        Show a message about old lollypop sync
+    """
+    def __init__(self):
+        """
+            Init view
+        """
+        View.__init__(self)
+        builder = Gtk.Builder()
+        builder.add_from_resource('/org/gnome/Lollypop/DeviceManagerView.ui')
+        self.add(builder.get_object('message'))
+        builder.get_object('label').set_text(
+            _("Lollypop sync changed due to limitations in some devices.\n"
+              "Please remove Music/lollypop folder on your device..."))
 
 
 class DeviceView(View):
     """
         Playlist synchronisation to MTP
     """
+    def exists_old_sync(uri):
+        """
+            True if exists an old sync on device
+            @param uri as str
+            @return bool
+        """
+        d = Gio.File.new_for_uri(uri+"/Music/lollypop/tracks")
+        return d.query_exists(None)
 
     def get_files(uri):
         """
@@ -49,12 +77,14 @@ class DeviceView(View):
             if not d.query_exists(None):
                 d.make_directory_with_parents(None)
             infos = d.enumerate_children(
-                'standard::name',
+                'standard::name,standard::type',
                 Gio.FileQueryInfoFlags.NONE,
                 None)
             for info in infos:
+                if info.get_file_type() != Gio.FileType.DIRECTORY:
+                    continue
                 # We look to this folder to select an already synced path
-                suburi = uri + info.get_name()+"/Music/lollypop/tracks"
+                suburi = uri + "/" + info.get_name() + "/Music/unsync"
                 sub = Gio.File.new_for_uri(suburi)
                 if sub.query_exists(None):
                     files.insert(0, info.get_name())
@@ -89,6 +119,7 @@ class DeviceView(View):
         self._device_widget.show()
         self._viewport.add(self._device_widget)
         self.add(self._scrolled)
+        self._sanitize_non_mtp()
 
     def populate(self):
         """
@@ -111,6 +142,23 @@ class DeviceView(View):
 #######################
 # PRIVATE             #
 #######################
+    def _sanitize_non_mtp(self):
+        """
+            Sanitize non MTP device by changing uri and creating a default
+            folder
+        """
+        uri = self._device.uri
+        # Mtp device contain a virtual folder
+        # For others, just go up in path
+        if uri.find('mtp:') == -1:
+            m = re.search('(.*)/[^/]*', uri)
+            if m:
+                uri = m.group(1)
+        # Add / to uri if needed, some gvfs modules add one and some not
+        if uri is not None and len(uri) > 1 and uri[-1:] != '/':
+            uri += '/'
+        self._device.uri = uri
+
     def stop(self):
         """
             Stop syncing
@@ -156,7 +204,7 @@ class DeviceView(View):
         """
         self._timeout_id = None
         text = combo.get_active_text()
-        uri = "%s%s/Music/%s" % (self._device.uri, text, "lollypop")
+        uri = "%s%s/Music" % (self._device.uri, text)
         self._device_widget.set_uri(uri)
         self._device_widget.populate()
 

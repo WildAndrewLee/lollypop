@@ -55,7 +55,7 @@ class AlbumsView(LazyLoadingView):
             Populate albums
             @param is compilation as bool
         """
-        self._add_albums(albums)
+        GLib.idle_add(self._add_albums, albums)
 
     def stop(self):
         """
@@ -91,7 +91,10 @@ class AlbumsView(LazyLoadingView):
             Start lazy loading
             @param [album ids as int]
         """
-        if albums and not self._stop:
+        if self._stop:
+            self._stop = False
+            return
+        if albums:
             widget = AlbumSimpleWidget(albums.pop(0),
                                        self._genre_ids,
                                        self._artist_ids)
@@ -100,7 +103,6 @@ class AlbumsView(LazyLoadingView):
             self._lazy_queue.append(widget)
             GLib.idle_add(self._add_albums, albums)
         else:
-            self._stop = False
             GLib.idle_add(self.lazy_loading)
             if self._viewport.get_child() is None:
                 self._viewport.add(self._albumbox)
@@ -144,17 +146,19 @@ class AlbumsView(LazyLoadingView):
                                    False)
             popover.set_relative_to(cover)
             popover.set_position(Gtk.PositionType.BOTTOM)
-        popover.connect('closed', self._on_popover_closed, cover)
+        album_widget.show_overlay(False)
+        album_widget.lock_overlay(True)
+        popover.connect('closed', self._on_popover_closed, album_widget)
         popover.show()
         cover.set_opacity(0.9)
-        album_widget.set_overlay(False)
 
-    def _on_popover_closed(self, popover, image):
+    def _on_popover_closed(self, popover, album_widget):
         """
             @param popover as Gtk.Popover
-            @param image as Gtk.Image
+            @param album_widget as AlbumWidget
         """
-        image.set_opacity(1)
+        album_widget.lock_overlay(False)
+        album_widget.get_cover().set_opacity(1)
 
     def _on_button_press(self, flowbox, event):
         """

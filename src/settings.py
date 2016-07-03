@@ -19,8 +19,10 @@ except:
 
 from gettext import gettext as _
 from threading import Thread
+from shutil import which
+from re import findall, DOTALL
 
-from lollypop.define import Lp, Type, SecretSchema, SecretAttributes, ArtSize
+from lollypop.define import Lp, SecretSchema, SecretAttributes
 from lollypop.cache import InfoCache
 
 
@@ -110,6 +112,15 @@ class SettingsDialog:
         switch_mix_party = builder.get_object('switch_mix_party')
         switch_mix_party.set_state(Lp().settings.get_value('party-mix'))
 
+        switch_artwork_tags = builder.get_object('switch_artwork_tags')
+        if which("kid3-cli") is None:
+            switch_artwork_tags.set_sensitive(False)
+            switch_artwork_tags.set_tooltip_text(
+                                            _("You need to install kid3-cli"))
+        else:
+            switch_artwork_tags.set_state(
+                                      Lp().settings.get_value('artwork-tags'))
+
         switch_genres = builder.get_object('switch_genres')
         switch_genres.set_state(Lp().settings.get_value('show-genres'))
 
@@ -123,6 +134,11 @@ class SettingsDialog:
         switch_repeat = builder.get_object('switch_repeat')
         switch_repeat.set_state(not Lp().settings.get_value('repeat'))
 
+        combo_orderby = builder.get_object('combo_orderby')
+        combo_orderby.set_active(Lp().settings.get_enum(('orderby')))
+
+        combo_preview = builder.get_object('combo_preview')
+
         scale_coversize = builder.get_object('scale_coversize')
         scale_coversize.set_range(150, 300)
         scale_coversize.set_value(
@@ -133,7 +149,8 @@ class SettingsDialog:
 
         main_chooser_box = builder.get_object('main_chooser_box')
         self._chooser_box = builder.get_object('chooser_box')
-        party_grid = builder.get_object('party_grid')
+
+        self._set_outputs(combo_preview)
 
         #
         # Music tab
@@ -161,37 +178,6 @@ class SettingsDialog:
             self._add_chooser(directory)
 
         #
-        # Party mode tab
-        #
-        genres = Lp().genres.get()
-        genres.insert(0, (Type.POPULARS, _("Populars")))
-        genres.insert(1, (Type.RECENTS, _("Recently added")))
-        ids = Lp().player.get_party_ids()
-        i = 0
-        x = 0
-        for genre_id, genre in genres:
-            label = Gtk.Label()
-            label.set_property('margin-start', 10)
-            label.set_property('halign', Gtk.Align.START)
-            label.set_property('hexpand', True)
-            label.set_ellipsize(Pango.EllipsizeMode.END)
-            label.set_text(genre)
-            label.set_tooltip_text(genre)
-            label.show()
-            switch = Gtk.Switch()
-            if genre_id in ids:
-                switch.set_state(True)
-            switch.connect("state-set", self._party_switch_state, genre_id)
-            switch.set_property('margin-end', 50)
-            switch.show()
-            party_grid.attach(label, x, i, 1, 1)
-            party_grid.attach(switch, x+1, i, 1, 1)
-            if x == 0:
-                x += 2
-            else:
-                i += 1
-                x = 0
-        #
         # Last.fm tab
         #
         if Lp().lastfm is not None and Secret is not None:
@@ -217,6 +203,44 @@ class SettingsDialog:
 #######################
 # PRIVATE             #
 #######################
+    def _get_pa_outputs(self):
+        """
+            Get PulseAudio outputs
+            @return name/device as [(str, str)]
+        """
+        ret = []
+        argv = ["pacmd", "list-sinks", None]
+        try:
+            (s, out, err, e) = GLib.spawn_sync(None, argv, None,
+                                               GLib.SpawnFlags.SEARCH_PATH,
+                                               None)
+            string = out.decode('utf-8')
+            devices = findall('name: <([^>]*)>', string, DOTALL)
+            names = findall('device.description = "([^"]*)"', string, DOTALL)
+            for name in names:
+                ret.append((name, devices.pop(0)))
+        except Exception as e:
+            print("SettingsDialog::_get_pa_outputse()", e)
+        return ret
+
+    def _set_outputs(self, combo):
+        """
+            Set outputs in combo
+            @parma combo as Gtk.ComboxBoxText
+        """
+        current = Lp().settings.get_value('preview-output').get_string()
+        renderer = combo.get_cells()[0]
+        renderer.set_property('ellipsize', Pango.EllipsizeMode.END)
+        renderer.set_property('max-width-chars', 60)
+        outputs = self._get_pa_outputs()
+        if outputs:
+            for output in outputs:
+                combo.append(output[1], output[0])
+                if output[1] == current:
+                    combo.set_active_id(output[1])
+        else:
+            combo.set_sensitive(False)
+
     def _add_chooser(self, directory=None):
         """
             Add a new chooser widget
@@ -250,20 +274,19 @@ class SettingsDialog:
         self._cover_tid = None
         value = widget.get_value()
         Lp().settings.set_value('cover-size', GLib.Variant('i', value))
-        ArtSize.BIG = value
+        Lp().art.update_art_size()
         for suffix in ["lastfm", "wikipedia", "spotify"]:
             for artist in Lp().artists.get([]):
                 InfoCache.uncache_artwork(artist[1], suffix,
                                           widget.get_scale_factor())
                 Lp().art.emit('artist-artwork-changed', artist[1])
-        # For a 200 album artwork, we want a 60 artist artwork
-        ArtSize.ARTIST_SMALL = ArtSize.BIG * 60 / 200
         Lp().window.reload_view()
 
     def _update_ui_setting(self, widget, state):
         """
             Update view setting
-            @param widget as unused, state as widget state
+            @param widget as Gtk.Switch
+            @param state as bool
         """
         Lp().settings.set_value('dark-ui', GLib.Variant('b', state))
         if not Lp().player.is_party():
@@ -273,7 +296,8 @@ class SettingsDialog:
     def _update_scan_setting(self, widget, state):
         """
             Update scan setting
-            @param widget as unused, state as widget state
+            @param widget as Gtk.Switch
+            @param state as bool
         """
         Lp().settings.set_value('auto-update',
                                 GLib.Variant('b', state))
@@ -281,7 +305,8 @@ class SettingsDialog:
     def _update_background_setting(self, widget, state):
         """
             Update background mode setting
-            @param widget as unused, state as widget state
+            @param widget as Gtk.Switch
+            @param state as bool
         """
         Lp().settings.set_value('background-mode',
                                 GLib.Variant('b', state))
@@ -289,7 +314,8 @@ class SettingsDialog:
     def _update_state_setting(self, widget, state):
         """
             Update save state setting
-            @param widget as unused, state as widget state
+            @param widget as Gtk.Switch
+            @param state as bool
         """
         Lp().settings.set_value('save-state',
                                 GLib.Variant('b', state))
@@ -297,7 +323,8 @@ class SettingsDialog:
     def _update_genres_setting(self, widget, state):
         """
             Update show genre setting
-            @param widget as unused, state as widget state
+            @param widget as Gtk.Switch
+            @param state as bool
         """
         Lp().window.show_genres(state)
         Lp().settings.set_value('show-genres',
@@ -336,10 +363,19 @@ class SettingsDialog:
         value = widget.get_value()
         Lp().settings.set_value('mix-duration', GLib.Variant('i', value))
 
+    def _update_artwork_tags(self, widget, state):
+        """
+            Update artwork in tags setting
+            @param widget as Gtk.Switch
+            @param state as bool
+        """
+        Lp().settings.set_value('artwork-tags', GLib.Variant('b', state))
+
     def _update_compilations_setting(self, widget, state):
         """
             Update compilations setting
-            @param widget as unused, state as widget state
+            @param widget as Gtk.Switch
+            @param state as bool
         """
         Lp().settings.set_value('show-compilations',
                                 GLib.Variant('b', state))
@@ -347,7 +383,8 @@ class SettingsDialog:
     def _update_artwork_setting(self, widget, state):
         """
             Update artist artwork setting
-            @param widget as unused, state as widget state
+            @param widget as Gtk.Switch
+            @param state as bool
         """
         Lp().settings.set_value('artist-artwork',
                                 GLib.Variant('b', state))
@@ -358,10 +395,18 @@ class SettingsDialog:
     def _update_repeat_setting(self, widget, state):
         """
             Update repeat setting
-            @param widget as unused, state as widget state
+            @param widget as Gtk.Switch
+            @param state as bool
         """
         Lp().settings.set_value('repeat',
                                 GLib.Variant('b', not state))
+
+    def _update_orderby_setting(self, widget):
+        """
+            Update orderby setting
+            @param widget as Gtk.ComboBoxText
+        """
+        Lp().settings.set_enum('orderby', widget.get_active())
 
     def _update_lastfm_settings(self, sync=False):
         """
@@ -426,24 +471,6 @@ class SettingsDialog:
             Lp().window.update_db()
         Lp().window.update_view()
 
-    def _party_switch_state(self, widget, state, genre_id):
-        """
-            Update party ids when use change a switch in dialog
-            @param widget as unused, state as widget state, genre id as int
-        """
-        ids = Lp().player.get_party_ids()
-        if state:
-            try:
-                ids.append(genre_id)
-            except:
-                pass
-        else:
-            try:
-                ids.remove(genre_id)
-            except:
-                pass
-        Lp().settings.set_value('party-ids',  GLib.Variant('ai', ids))
-
     def _show_mix_popover(self, widget):
         """
             Show mix popover
@@ -456,6 +483,26 @@ class SettingsDialog:
                 self._popover.set_modal(False)
                 self._popover.add(self._popover_content)
             self._popover.show_all()
+
+    def _on_preview_changed(self, combo):
+        """
+            Update preview setting
+            @param combo as Gtk.ComboBoxText
+        """
+        Lp().settings.set_value('preview-output',
+                                GLib.Variant('s', combo.get_active_id()))
+        Lp().player.set_preview_output()
+
+    def _on_preview_query_tooltip(self, combo, x, y, keyboard, tooltip):
+        """
+            Show tooltip if needed
+            @param combo as Gtk.ComboBoxText
+            @param x as int
+            @param y as int
+            @param keyboard as bool
+            @param tooltip as Gtk.Tooltip
+        """
+        combo.set_tooltip_text(combo.get_active_text())
 
     def _on_mix_button_press(self, widget, event):
         """

@@ -33,6 +33,7 @@ class ArtworkSearch(Gtk.Bin):
         Gtk.Bin.__init__(self)
         self.connect('unmap', self._on_self_unmap)
         self._timeout_id = None
+        self._loading = False
         self._album = album
         self._artist_id = artist_id
         self._artist = Lp().artists.get_name(artist_id)
@@ -40,6 +41,8 @@ class ArtworkSearch(Gtk.Bin):
         builder = Gtk.Builder()
         builder.add_from_resource('/org/gnome/Lollypop/ArtworkSearch.ui')
         builder.connect_signals(self)
+        self._infobar = builder.get_object('infobar')
+        self._infobar_label = builder.get_object('infobarlabel')
         widget = builder.get_object('widget')
         self._stack = builder.get_object('stack')
         self._entry = builder.get_object('entry')
@@ -52,15 +55,14 @@ class ArtworkSearch(Gtk.Bin):
         self._view.show()
 
         self._label = builder.get_object('label')
-        self._label.set_text(_("Please wait..."))
+        self._label.set_text(_("Select artwork"))
 
         builder.get_object('viewport').add(self._view)
 
         self._spinner = builder.get_object('spinner')
-        self._stack.add_named(self._spinner, 'spinner')
         self._stack.add_named(builder.get_object('notfound'), 'notfound')
         self._stack.add_named(builder.get_object('scrolled'), 'main')
-        self._stack.set_visible_child_name('spinner')
+        self._stack.set_visible_child_name('main')
         self.add(widget)
         self.set_size_request(700, 400)
 
@@ -68,21 +70,29 @@ class ArtworkSearch(Gtk.Bin):
         """
             Populate view
         """
+        image = Gtk.Image()
+        surface = Lp().art.get_default_icon('edit-clear-all-symbolic',
+                                            ArtSize.BIG,
+                                            self.get_scale_factor())
+        image.set_from_surface(surface)
+        image.set_property('valign', Gtk.Align.CENTER)
+        image.set_property('halign', Gtk.Align.CENTER)
+        image.get_style_context().add_class('cover-frame')
+        image.show()
+        self._view.add(image)
+
         # First load local files
         if self._album is not None:
-            urls = Lp().art.get_album_artworks(self._album)
-            for url in urls:
+            paths = Lp().art.get_album_artworks(self._album)
+            for path in paths:
                 try:
-                    f = Gio.File.new_for_uri(url)
+                    f = Gio.File.new_for_path(path)
                     (status, data, tag) = f.load_contents()
                     self._add_pixbuf(data)
                 except Exception as e:
                     print("ArtworkSearch::populate()", e)
-
-            if len(urls) > 0:
-                self._stack.set_visible_child_name('main')
         # Then duckduckgo
-        self._thread = True
+        self._loading = True
         t = Thread(target=self._populate)
         t.daemon = True
         t.start()
@@ -91,7 +101,7 @@ class ArtworkSearch(Gtk.Bin):
         """
             Stop loading
         """
-        self._thread = False
+        self._loading = False
 
 #######################
 # PRIVATE             #
@@ -131,7 +141,7 @@ class ArtworkSearch(Gtk.Bin):
         """
         if search != self._entry.get_text():
             return
-        if urls:
+        if urls and self._loading:
             url = urls.pop(0)
             try:
                 f = Gio.File.new_for_uri(url)
@@ -140,8 +150,10 @@ class ArtworkSearch(Gtk.Bin):
                     GLib.idle_add(self._add_pixbuf, data)
             except Exception as e:
                 print("ArtworkSearch::_add_pixbufs: %s" % e)
-            if self._thread:
+            if self._loading:
                 self._add_pixbufs(urls, search)
+        else:
+            self._spinner.stop()
 
     def _show_not_found(self):
         """
@@ -150,6 +162,7 @@ class ArtworkSearch(Gtk.Bin):
         if len(self._view.get_children()) == 0:
             self._label.set_text(_("No cover found..."))
             self._stack.set_visible_child_name('notfound')
+        self._spinner.stop()
 
     def _add_pixbuf(self, data):
         """
@@ -187,11 +200,6 @@ class ArtworkSearch(Gtk.Bin):
             self._view.add(image)
         except Exception as e:
             print("ArtworkSearch::_add_pixbuf: %s" % e)
-        # Remove spinner if exist
-        if self._stack.get_visible_child_name() == 'spinner':
-            self._spinner.stop()
-            self._label.set_text(_("Select artwork"))
-            self._stack.set_visible_child_name('main')
 
     def _close_popover(self):
         """
@@ -216,18 +224,23 @@ class ArtworkSearch(Gtk.Bin):
             Use pixbuf as cover
             Reset cache and use player object to announce cover change
         """
-        data = self._datas[child.get_child()]
-        self._close_popover()
-        if self._album is not None:
-            Lp().art.save_album_artwork(data, self._album.id)
-            Lp().art.clean_album_cache(self._album)
-            Lp().art.album_artwork_update(self._album.id)
-        else:
-            for suffix in ["lastfm", "wikipedia", "spotify"]:
-                InfoCache.uncache_artwork(self._artist, suffix,
-                                          flowbox.get_scale_factor())
-                InfoCache.cache(self._artist, None, data, suffix)
-        self._streams = {}
+        try:
+            data = self._datas[child.get_child()]
+            self._close_popover()
+            if self._album is not None:
+                Lp().art.save_album_artwork(data, self._album.id)
+            else:
+                for suffix in ["lastfm", "wikipedia", "spotify"]:
+                    InfoCache.uncache_artwork(self._artist, suffix,
+                                              flowbox.get_scale_factor())
+                    InfoCache.cache(self._artist, None, data, suffix)
+                Lp().art.emit('artist-artwork-changed', self._artist)
+            self._streams = {}
+        except:
+            self._infobar_label.set_text(_("Reset artwork?"))
+            self._infobar.show()
+            # GTK 3.20 https://bugzilla.gnome.org/show_bug.cgi?id=710888
+            self._infobar.queue_resize()
 
     def _on_search_changed(self, entry):
         """
@@ -247,10 +260,10 @@ class ArtworkSearch(Gtk.Bin):
         """
         for child in self._view.get_children():
             child.destroy()
-        self._stack.set_visible_child_name('spinner')
         self._spinner.start()
+        self._spinner.show()
         self._timeout_id = None
-        self._thread = True
+        self._loading = True
         t = Thread(target=self._populate, args=(string,))
         t.daemon = True
         t.start()
@@ -274,14 +287,41 @@ class ArtworkSearch(Gtk.Bin):
                     raise
                 if self._album is not None:
                     Lp().art.save_album_artwork(data, self._album.id)
-                    Lp().art.clean_album_cache(self._album)
-                    Lp().art.album_artwork_update(self._album.id)
                 else:
                     for suffix in ["lastfm", "wikipedia", "spotify"]:
                         InfoCache.uncache_artwork(self._artist, suffix,
                                                   button.get_scale_factor())
                         InfoCache.cache(self._artist, None, data, suffix)
+                    Lp().art.emit('artist-artwork-changed', self._artist)
                 self._streams = {}
             except Exception as e:
                 print("ArtworkSearch::_on_button_clicked():", e)
         dialog.destroy()
+
+    def _on_reset_confirm(self, button):
+        """
+            Reset cover
+            @param button as Gtk.Button
+        """
+        self._infobar.hide()
+        if self._album is not None:
+            Lp().art.remove_album_artwork(self._album)
+            Lp().art.clean_album_cache(self._album)
+            Lp().art.emit('album-artwork-changed', self._album.id)
+        else:
+            for suffix in ["lastfm", "wikipedia", "spotify"]:
+                InfoCache.uncache_artwork(self._artist, suffix,
+                                          button.get_scale_factor())
+                InfoCache.cache(self._artist, None, None, suffix)
+                Lp().art.emit('artist-artwork-changed', self._artist)
+        self._close_popover()
+
+    def _on_info_response(self, infobar, response_id):
+        """
+            Hide infobar
+            @param widget as Gtk.Infobar
+            @param reponse id as int
+        """
+        if response_id == Gtk.ResponseType.CLOSE:
+            self._infobar.hide()
+            self._view.unselect_all()

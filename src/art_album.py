@@ -14,13 +14,15 @@ from gi.repository import GLib, Gdk, GdkPixbuf, Gio, Gst
 
 import re
 import os
+from shutil import which
+from threading import Thread
 
 from lollypop.art_base import BaseArt
 from lollypop.art_downloader import ArtDownloader
 from lollypop.tagreader import TagReader
 from lollypop.define import Lp, ArtSize
 from lollypop.objects import Album
-from lollypop.utils import escape
+from lollypop.utils import escape, is_readonly
 
 
 class AlbumArt(BaseArt, ArtDownloader, TagReader):
@@ -80,9 +82,12 @@ class AlbumArt(BaseArt, ArtDownloader, TagReader):
         try:
             filename = self._get_album_cache_name(album) + ".jpg"
             paths = [
+                # Used when album.path is readonly
+                os.path.join(self._STORE_PATH, filename),
+                # Default favorite artwork
                 os.path.join(album.path, self._favorite),
                 # Used when having muliple albums in same folder
-                os.path.join(album.path, filename)
+                os.path.join(album.path, filename),
             ]
             for path in paths:
                 if os.path.exists(path):
@@ -114,8 +119,7 @@ class AlbumArt(BaseArt, ArtDownloader, TagReader):
         paths = []
         for path in filter(lambda p: p.lower().endswith(self._MIMES),
                            all_paths):
-            if not path.endswith(self._favorite):
-                paths.append(path)
+            paths.append(path)
         return paths
 
     def get_album_artwork(self, album, size, scale):
@@ -169,9 +173,9 @@ class AlbumArt(BaseArt, ArtDownloader, TagReader):
                 # Use default artwork
                 if pixbuf is None:
                     self.download_album_art(album.id)
-                    return self._get_default_icon('folder-music-symbolic',
-                                                  size,
-                                                  scale)
+                    return self.get_default_icon('folder-music-symbolic',
+                                                 size,
+                                                 scale)
                 else:
                     pixbuf.savev(cache_path_jpg, "jpeg", ["quality"], ["90"])
             surface = Gdk.cairo_surface_create_from_pixbuf(pixbuf, scale, None)
@@ -179,8 +183,8 @@ class AlbumArt(BaseArt, ArtDownloader, TagReader):
             return surface
 
         except Exception as e:
-            print(e)
-            return self._get_default_icon('folder-music-symbolic', size, scale)
+            print("AlbumArt::get_album_artwork()", e)
+            return self.get_default_icon('folder-music-symbolic', size, scale)
 
     def get_album_artwork2(self, uri, size, scale):
         """
@@ -198,7 +202,7 @@ class AlbumArt(BaseArt, ArtDownloader, TagReader):
             del pixbuf
             return surface
         else:
-            return self._get_default_icon('folder-music-symbolic', size, scale)
+            return self.get_default_icon('folder-music-symbolic', size, scale)
 
     def save_album_artwork(self, data, album_id):
         """
@@ -207,24 +211,40 @@ class AlbumArt(BaseArt, ArtDownloader, TagReader):
             @param album id as int
         """
         try:
+            artpath = None
+            save_to_tags = Lp().settings.get_value('artwork-tags') and\
+                which("kid3-cli") is not None
             album = Album(album_id)
             path_count = Lp().albums.get_path_count(album.path)
+            filename = self._get_album_cache_name(album) + ".jpg"
+            if save_to_tags:
+                t = Thread(target=self._save_artwork_tags,
+                           args=(data, album))
+                t.daemon = True
+                t.start()
+
             # Many albums with same path, suffix with artist_album name
             if path_count > 1:
-                filename = self._get_album_cache_name(album) + ".jpg"
                 artpath = os.path.join(album.path, filename)
                 if os.path.exists(os.path.join(album.path, self._favorite)):
                     os.remove(os.path.join(album.path, self._favorite))
+            elif is_readonly(album.path):
+                artpath = os.path.join(self._STORE_PATH, filename)
             else:
                 artpath = os.path.join(album.path, self._favorite)
-            stream = Gio.MemoryInputStream.new_from_data(data, None)
-            pixbuf = GdkPixbuf.Pixbuf.new_from_stream_at_scale(stream,
+            # Update cover file if exists event if we have written to tags
+            if not save_to_tags or os.path.exists(artpath):
+                stream = Gio.MemoryInputStream.new_from_data(data, None)
+                pixbuf = GdkPixbuf.Pixbuf.new_from_stream_at_scale(
+                                                               stream,
                                                                ArtSize.MONSTER,
                                                                ArtSize.MONSTER,
-                                                               False,
+                                                               True,
                                                                None)
-            pixbuf.savev(artpath, "jpeg", ["quality"], ["90"])
-            del pixbuf
+                pixbuf.savev(artpath, "jpeg", ["quality"], ["90"])
+                del pixbuf
+                self.clean_album_cache(album)
+                GLib.idle_add(self.album_artwork_update, album.id)
         except Exception as e:
             print("Art::save_album_artwork(): %s" % e)
 
@@ -234,6 +254,26 @@ class AlbumArt(BaseArt, ArtDownloader, TagReader):
             @param album id as int
         """
         self.emit('album-artwork-changed', album_id)
+
+    def remove_album_artwork(self, album):
+        """
+            Remove album artwork
+            @param album as Album
+        """
+        try:
+            for artwork in self.get_album_artworks(album):
+                os.remove(os.path.join(album.path, artwork))
+            if Lp().settings.get_value('artwork-tags') and\
+                    which("kid3-cli") is not None:
+                argv = ["kid3-cli", "-c", "select all", "-c",
+                        "set picture:'' ''"]
+                for path in Lp().albums.get_track_paths(album.id, [], []):
+                    argv.append(path)
+                argv.append(None)
+                GLib.spawn_sync(None, argv, None,
+                                GLib.SpawnFlags.SEARCH_PATH, None)
+        except Exception as e:
+            print("AlbumArt::remove_album_artwork():", e)
 
     def clean_album_cache(self, album):
         """
@@ -281,6 +321,33 @@ class AlbumArt(BaseArt, ArtDownloader, TagReader):
 #######################
 # PRIVATE             #
 #######################
+    def _save_artwork_tags(self, data, album):
+        """
+            Save artwork in tags
+            @param data as bytes
+            @param album as Album
+        """
+        stream = Gio.MemoryInputStream.new_from_data(data, None)
+        pixbuf = GdkPixbuf.Pixbuf.new_from_stream_at_scale(stream,
+                                                           ArtSize.MONSTER,
+                                                           ArtSize.MONSTER,
+                                                           True,
+                                                           None)
+        pixbuf.savev("/tmp/lollypop_cover_tags.jpg",
+                     "jpeg", ["quality"], ["90"])
+        del pixbuf
+        if os.path.exists("/tmp/lollypop_cover_tags.jpg"):
+            argv = ["kid3-cli", "-c", "select all", "-c",
+                    "set picture:'/tmp/lollypop_cover_tags.jpg' ''"]
+            for path in Lp().albums.get_track_paths(album.id, [], []):
+                argv.append(path)
+            argv.append(None)
+            GLib.spawn_sync(None, argv, None,
+                            GLib.SpawnFlags.SEARCH_PATH, None)
+            os.remove("/tmp/lollypop_cover_tags.jpg")
+            self.clean_album_cache(album)
+            GLib.idle_add(self.album_artwork_update, album.id)
+
     def _get_album_cache_name(self, album):
         """
             Get a uniq string for album

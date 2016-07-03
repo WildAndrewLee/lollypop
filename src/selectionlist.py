@@ -102,6 +102,8 @@ class SelectionList(Gtk.ScrolledWindow):
         self._renderer0.set_property('ellipsize-set', True)
         self._renderer0.set_property('ellipsize', Pango.EllipsizeMode.END)
         self._renderer1 = Gtk.CellRendererPixbuf()
+        # 16px for Gtk.IconSize.MENU
+        self._renderer1.set_fixed_size(16, -1)
         column = Gtk.TreeViewColumn('')
         column.set_expand(True)
         column.pack_start(self._renderer0, True)
@@ -111,10 +113,14 @@ class SelectionList(Gtk.ScrolledWindow):
         column.pack_start(self._renderer1, False)
         column.add_attribute(self._renderer1, 'icon-name', 2)
         self._view.append_column(column)
-        self._view.connect('motion_notify_event', self._on_motion_notify)
         self._view.set_property('has_tooltip', True)
         self.add(self._view)
+        self.connect('motion_notify_event', self._on_motion_notify)
         self.get_vadjustment().connect('value_changed', self._on_scroll)
+        self.connect('enter-notify-event', self._on_enter_notify)
+        self.connect('leave-notify-event', self._on_leave_notify)
+        Lp().art.connect('artist-artwork-changed',
+                         self._on_artist_artwork_changed)
 
     def mark_as_artists(self, is_artists):
         """
@@ -297,9 +303,7 @@ class SelectionList(Gtk.ScrolledWindow):
             @param ojbect_id as id
         """
         icon = ''
-        if object_id >= 0:
-            icon = 'go-next-symbolic'
-        elif object_id == Type.POPULARS:
+        if object_id == Type.POPULARS:
             icon = 'starred-symbolic'
         elif object_id == Type.PLAYLISTS:
             icon = 'emblem-documents-symbolic'
@@ -423,6 +427,7 @@ class SelectionList(Gtk.ScrolledWindow):
             @param widget as Gtk.widget
             @param event as Gdk.Event
         """
+        # FIXME Not needed with GTK >= 3.18
         Lp().window.enable_global_shorcuts(False)
 
     def _on_leave_notify(self, widget, event):
@@ -431,6 +436,7 @@ class SelectionList(Gtk.ScrolledWindow):
             @param widget as Gtk.widget
             @param event as GdK.Event
         """
+        # FIXME Not needed with GTK >= 3.18
         Lp().window.enable_global_shorcuts(True)
         self._hide_popover()
         self._last_motion_event = None
@@ -499,6 +505,17 @@ class SelectionList(Gtk.ScrolledWindow):
             self._popover.set_position(Gtk.PositionType.RIGHT)
             self._popover.show()
 
+    def _on_artist_artwork_changed(self, art, artist):
+        """
+            Update row
+        """
+        if self._is_artists:
+            self._renderer0.on_artist_artwork_changed(artist)
+            for item in self._model:
+                if item[1] == artist:
+                    item[1] = artist
+                    break
+
     def _on_query_tooltip(self, widget, x, y, keyboard, tooltip):
         """
             Show tooltip if needed
@@ -528,7 +545,9 @@ class SelectionList(Gtk.ScrolledWindow):
                     width -= ArtSize.ARTIST_SMALL +\
                              CellRendererArtist.xshift * 2
                 layout.set_ellipsize(Pango.EllipsizeMode.END)
-                layout.set_width(Pango.units_from_double(width-8))
+                if self._model.get_value(iterator, 0) < 0:
+                    width -= 8
+                layout.set_width(Pango.units_from_double(width))
                 layout.set_text(text, -1)
                 if layout.is_ellipsized():
                     tooltip.set_markup(escape(text))

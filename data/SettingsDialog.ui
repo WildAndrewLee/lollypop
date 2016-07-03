@@ -107,7 +107,6 @@
     <property name="title" translatable="yes">Preferences</property>
     <property name="modal">True</property>
     <property name="window_position">center-on-parent</property>
-    <property name="default_height">500</property>
     <property name="destroy_with_parent">True</property>
     <property name="type_hint">dialog</property>
     <property name="skip_taskbar_hint">True</property>
@@ -257,10 +256,34 @@
               </packing>
             </child>
             <child>
-              <placeholder/>
+              <object class="GtkLabel" id="orderby_label">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <property name="halign">start</property>
+                <property name="label" translatable="yes">Order albums by</property>
+              </object>
+              <packing>
+                <property name="left_attach">0</property>
+                <property name="top_attach">4</property>
+              </packing>
             </child>
             <child>
-              <placeholder/>
+              <object class="GtkComboBoxText" id="combo_orderby">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <property name="halign">end</property>
+                <items>
+                  <item id="artist" translatable="yes">Artist</item>
+                  <item id="album" translatable="yes">Name</item>
+                  <item id="year" translatable="yes">Year</item>
+                  <item id="popularity" translatable="yes">Popularity</item>
+                </items>
+                <signal name="changed" handler="_update_orderby_setting" swapped="no"/>
+              </object>
+              <packing>
+                <property name="left_attach">1</property>
+                <property name="top_attach">4</property>
+              </packing>
             </child>
           </object>
         </child>
@@ -366,11 +389,11 @@
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
                 <property name="halign">start</property>
-                <property name="label" translatable="yes">Mix songs</property>
+                <property name="label" translatable="yes">Mix tracks</property>
               </object>
               <packing>
                 <property name="left_attach">0</property>
-                <property name="top_attach">4</property>
+                <property name="top_attach">5</property>
               </packing>
             </child>
             <child>
@@ -386,7 +409,7 @@
               </object>
               <packing>
                 <property name="left_attach">1</property>
-                <property name="top_attach">4</property>
+                <property name="top_attach">5</property>
               </packing>
             </child>
             <child>
@@ -411,6 +434,59 @@
               <packing>
                 <property name="left_attach">0</property>
                 <property name="top_attach">3</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel" id="artworktags">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <property name="halign">start</property>
+                <property name="label" translatable="yes">Save artwork in files</property>
+              </object>
+              <packing>
+                <property name="left_attach">0</property>
+                <property name="top_attach">4</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkSwitch" id="switch_artwork_tags">
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="halign">end</property>
+                <signal name="state-set" handler="_update_artwork_tags" swapped="no"/>
+              </object>
+              <packing>
+                <property name="left_attach">1</property>
+                <property name="top_attach">4</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkLabel" id="preview">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <property name="halign">start</property>
+                <property name="label" translatable="yes">Preview tracks on</property>
+              </object>
+              <packing>
+                <property name="left_attach">0</property>
+                <property name="top_attach">6</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkComboBoxText" id="combo_preview">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <property name="has_tooltip">True</property>
+                <property name="active">0</property>
+                <items>
+                  <item id="" translatable="yes">None audio device</item>
+                </items>
+                <signal name="changed" handler="_on_preview_changed" swapped="no"/>
+                <signal name="query-tooltip" handler="_on_preview_query_tooltip" swapped="no"/>
+              </object>
+              <packing>
+                <property name="left_attach">1</property>
+                <property name="top_attach">6</property>
               </packing>
             </child>
           </object>
@@ -487,76 +563,6 @@
           </object>
           <packing>
             <property name="position">2</property>
-            <property name="tab_fill">False</property>
-          </packing>
-        </child>
-        <child>
-          <object class="GtkScrolledWindow" id="party_scroll">
-            <property name="visible">True</property>
-            <property name="can_focus">True</property>
-            <property name="shadow_type">in</property>
-            <child>
-              <object class="GtkViewport" id="viewport2">
-                <property name="visible">True</property>
-                <property name="can_focus">False</property>
-                <child>
-                  <object class="GtkGrid" id="party_grid">
-                    <property name="visible">True</property>
-                    <property name="can_focus">False</property>
-                    <property name="margin_start">10</property>
-                    <property name="margin_end">10</property>
-                    <property name="margin_top">10</property>
-                    <property name="margin_bottom">10</property>
-                    <property name="hexpand">True</property>
-                    <property name="vexpand">True</property>
-                    <property name="orientation">vertical</property>
-                    <property name="row_spacing">10</property>
-                    <property name="column_spacing">10</property>
-                    <child>
-                      <placeholder/>
-                    </child>
-                    <child>
-                      <placeholder/>
-                    </child>
-                    <child>
-                      <placeholder/>
-                    </child>
-                    <child>
-                      <placeholder/>
-                    </child>
-                    <child>
-                      <placeholder/>
-                    </child>
-                    <child>
-                      <placeholder/>
-                    </child>
-                    <child>
-                      <placeholder/>
-                    </child>
-                    <child>
-                      <placeholder/>
-                    </child>
-                    <child>
-                      <placeholder/>
-                    </child>
-                  </object>
-                </child>
-              </object>
-            </child>
-          </object>
-          <packing>
-            <property name="position">3</property>
-          </packing>
-        </child>
-        <child type="tab">
-          <object class="GtkLabel" id="label3">
-            <property name="visible">True</property>
-            <property name="can_focus">False</property>
-            <property name="tooltip_text" translatable="yes">Select what will be available in party mode</property>
-            <property name="label" translatable="yes">Party mode</property>
-          </object>
-          <packing>
-            <property name="position">3</property>
             <property name="tab_fill">False</property>
           </packing>
         </child>
@@ -662,7 +668,7 @@
             </child>
           </object>
           <packing>
-            <property name="position">4</property>
+            <property name="position">3</property>
           </packing>
         </child>
         <child type="tab">
@@ -673,7 +679,7 @@
             <property name="label">Last.fm</property>
           </object>
           <packing>
-            <property name="position">4</property>
+            <property name="position">3</property>
             <property name="tab_fill">False</property>
           </packing>
         </child>

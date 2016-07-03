@@ -266,16 +266,13 @@ class QueuePopover(Gtk.Popover):
         self._view.connect("row-activated", self._on_row_activated)
         self._view.show()
 
+        self.drag_dest_set(Gtk.DestDefaults.DROP | Gtk.DestDefaults.MOTION,
+                           [], Gdk.DragAction.MOVE)
+        self.drag_dest_add_text_targets()
+        self.connect('drag-data-received', self._on_drag_data_received)
+
         builder.get_object('scrolled').add(self._view)
         self.add(builder.get_object('widget'))
-
-    def do_show(self):
-        """
-            Set widget size
-        """
-        height = Lp().window.get_size()[1]
-        self.set_size_request(400, height*0.7)
-        Gtk.Popover.do_show(self)
 
     def populate(self):
         """
@@ -329,10 +326,12 @@ class QueuePopover(Gtk.Popover):
 
     def _on_map(self, widget):
         """
-            Connect signals
+            Connect signals, populate, and resize
             @param widget as Gtk.Widget
         """
         self._stop = False
+        height = Lp().window.get_size()[1]
+        self.set_size_request(400, height*0.7)
         self.populate()
         self._signal_id1 = Lp().player.connect('current-changed',
                                                self._on_current_changed)
@@ -391,7 +390,9 @@ class QueuePopover(Gtk.Popover):
             @param widget as Gtk.ListBox
             @param row as QueueRow
         """
-        Lp().player.load(Track(row.get_id()))
+        if not Lp().player.locked:
+            Lp().player.load(Track(row.get_id()))
+            GLib.idle_add(row.destroy)
 
     def _on_button_clicked(self, widget):
         """
@@ -438,3 +439,20 @@ class QueuePopover(Gtk.Popover):
             self._view.insert(src_row, row_index)
             Lp().player.insert_in_queue(src, row_index)
         self._update_headers()
+
+    def _on_drag_data_received(self, widget, context, x, y, data, info, time):
+        """
+            Move track
+            @param widget as Gtk.Widget
+            @param context as Gdk.DragContext
+            @param x as int
+            @param y as int
+            @param data as Gtk.SelectionData
+            @param info as int
+            @param time as int
+        """
+        try:
+            self._on_track_moved(self._view.get_children()[-1],
+                                 int(data.get_text()), x, y)
+        except:
+            pass

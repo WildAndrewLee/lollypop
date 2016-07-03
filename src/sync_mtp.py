@@ -31,6 +31,7 @@ class MtpSync:
         self._syncing = False
         self._errors = False
         self._convert = False
+        self._normalize = False
         self._errors_count = 0
         self._total = 0  # Total files to sync
         self._done = 0   # Handled files on sync
@@ -70,41 +71,44 @@ class MtpSync:
             @return [str]
         """
         children = []
-        dir_uris = [self._uri+'/tracks/']
-
-        d = Gio.File.new_for_uri(self._uri+'/tracks/')
+        dir_uris = [self._uri]
+        d = Gio.File.new_for_uri(self._uri)
         if not d.query_exists(None):
             self._retry(d.make_directory_with_parents, (None,))
         while dir_uris:
             try:
                 uri = dir_uris.pop(0)
-                album = uri.replace(self._uri+"/tracks/", "")
-                d = Gio.File.new_for_uri(self._uri+"/tracks/"+album)
+                album = uri.replace(self._uri, "")
+                d = Gio.File.new_for_uri(self._uri+"/"+album)
                 infos = d.enumerate_children(
                     'standard::name,standard::type',
                     Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS,
                     None)
                 for info in infos:
                     if info.get_file_type() == Gio.FileType.DIRECTORY:
-                        dir_uris.append(uri+info.get_name())
+                        if info.get_name() != "unsync":
+                            dir_uris.append(uri+info.get_name())
                     else:
                         track = info.get_name()
-                        children.append("%s/tracks/%s/%s" % (self._uri,
-                                                             album,
-                                                             track))
+                        if not track.endswith('m3u'):
+                            children.append("%s/%s/%s" % (self._uri,
+                                                          album,
+                                                          track))
             except Exception as e:
                 print("MtpSync::_get_track_files():", e, uri)
         return children
 
-    def _sync(self, playlists, convert):
+    def _sync(self, playlists, convert, normalize):
         """
             Sync playlists with device as this
             @param playlists as [str]
             @param convert as bool
+            @param normalize as bool
         """
         try:
             self._in_thread = True
             self._convert = convert
+            self._normalize = normalize
             self._errors = False
             self._errors_count = 0
             self._copied_art_uris = []
@@ -149,6 +153,9 @@ class MtpSync:
                     d = Gio.File.new_for_uri(uri)
                     self._retry(d.delete, (None,))
 
+            d = Gio.File.new_for_uri(self._uri+"/unsync")
+            if not d.query_exists(None):
+                self._retry(d.make_directory_with_parents, (None,))
         except Exception as e:
             print("DeviceManagerWidget::_sync(): %s" % e)
         self._fraction = 1.0
@@ -178,8 +185,8 @@ class MtpSync:
                 stream = None
 
             # Start copying
-            tracks_ids = Lp().playlists.get_track_ids(playlist)
-            for track_id in tracks_ids:
+            track_ids = Lp().playlists.get_track_ids(playlist)
+            for track_id in track_ids:
                 if track_id is None:
                     continue
                 if not self._syncing:
@@ -192,7 +199,7 @@ class MtpSync:
                     artists = escape(", ".join(track.artists).lower())
                 else:
                     artists = escape(", ".join(track.album.artists).lower())
-                on_device_album_uri = "%s/tracks/%s_%s" %\
+                on_device_album_uri = "%s/%s_%s" %\
                                       (self._uri,
                                        artists,
                                        album_name)
@@ -215,7 +222,7 @@ class MtpSync:
                 track_name = escape(GLib.basename(track.path))
                 # Check extension, if not mp3, convert
                 ext = os.path.splitext(track.path)[1]
-                if ext != ".mp3" and self._convert:
+                if (ext != ".mp3" or self._normalize) and self._convert:
                     convertion_needed = True
                     track_name = track_name.replace(ext, ".mp3")
                 else:
@@ -229,7 +236,7 @@ class MtpSync:
                 dst_uri = "%s/%s_%s" % (on_device_album_uri,
                                         mtime, track_name)
                 if stream is not None:
-                    line = "tracks/%s_%s/%s_%s\n" %\
+                    line = "%s_%s/%s_%s\n" %\
                             (artists,
                              album_name,
                              mtime,
@@ -284,14 +291,14 @@ class MtpSync:
             Delete files not available in playlist
         """
         track_uris = []
-        tracks_ids = []
+        track_ids = []
 
         # Get tracks ids
         for playlist in playlists:
-            tracks_ids += Lp().playlists.get_track_ids(playlist)
+            track_ids += Lp().playlists.get_track_ids(playlist)
 
         # Get tracks uris
-        for track_id in tracks_ids:
+        for track_id in track_ids:
             if not self._syncing:
                 self._fraction = 1.0
                 self._in_thread = False
@@ -302,9 +309,9 @@ class MtpSync:
                 artists = escape(", ".join(track.artists).lower())
             else:
                 artists = escape(", ".join(track.album.artists).lower())
-            album_uri = "%s/tracks/%s_%s" % (self._uri,
-                                             artists,
-                                             album_name)
+            album_uri = "%s/%s_%s" % (self._uri,
+                                      artists,
+                                      album_name)
             track_name = escape(GLib.basename(track.path))
             # Check extension, if not mp3, convert
             ext = os.path.splitext(track.path)[1]
@@ -345,7 +352,18 @@ class MtpSync:
             # We need to escape \ in path
             src_path = src.get_path().replace("\\", "\\\\\\")
             dst_path = dst.get_path().replace("\\", "\\\\\\")
-            pipeline = Gst.parse_launch('filesrc location="%s" ! decodebin\
+            if self._normalize:
+                pipeline = Gst.parse_launch(
+                                        'filesrc location="%s" ! decodebin\
+                                        ! audioconvert\
+                                        ! rgvolume pre-amp=6.0 headroom=10.0\
+                                        ! rglimiter ! audioconvert\
+                                        ! lamemp3enc ! id3v2mux\
+                                        ! filesink location="%s"'
+                                        % (src_path, dst_path))
+            else:
+                pipeline = Gst.parse_launch(
+                                        'filesrc location="%s" ! decodebin\
                                         ! audioconvert ! lamemp3enc ! id3v2mux\
                                         ! filesink location="%s"'
                                         % (src_path, dst_path))

@@ -132,10 +132,10 @@ class SearchRow(Gtk.ListBoxRow):
             Add track to queue
             @param button as Gtk.Button
         """
-        if self.is_track:
+        if self._is_track:
             Lp().player.append_to_queue(self._id)
         else:
-            for track in Lp().albums.get_tracks(self._id, None):
+            for track in Lp().albums.get_tracks(self._id, [], []):
                 Lp().player.append_to_queue(track)
         button.set_sensitive(False)
         button.set_opacity(0.4)
@@ -202,14 +202,6 @@ class SearchPopover(Gtk.Popover):
 
         builder.get_object('scrolled').add(self._view)
         self.add(builder.get_object('widget'))
-
-    def do_show(self):
-        """
-            Set widget size
-        """
-        height = Lp().window.get_size()[1]
-        self.set_size_request(400, height*0.7)
-        Gtk.Popover.do_show(self)
 
 #######################
 # PRIVATE             #
@@ -379,16 +371,20 @@ class SearchPopover(Gtk.Popover):
 
     def _on_map(self, widget):
         """
-            Disable global shortcuts
+            Disable global shortcuts and resize
             @param widget as Gtk.Widget
         """
+        # FIXME Not needed with GTK >= 3.18
         Lp().window.enable_global_shorcuts(False)
+        height = Lp().window.get_size()[1]
+        self.set_size_request(400, height*0.7)
 
     def _on_unmap(self, widget):
         """
             Enable global shortcuts
             @param widget as Gtk.Widget
         """
+        # FIXME Not needed with GTK >= 3.18
         Lp().window.enable_global_shorcuts(True)
 
     def _on_search_changed(self, widget):
@@ -404,7 +400,7 @@ class SearchPopover(Gtk.Popover):
             GLib.source_remove(self._timeout)
             self._timeout = None
 
-        self._current_search = widget.get_text()
+        self._current_search = widget.get_text().strip()
         if self._current_search != "":
             self._new_btn.set_sensitive(True)
             self._timeout = GLib.timeout_add(100,
@@ -438,9 +434,16 @@ class SearchPopover(Gtk.Popover):
             @param widget as Gtk.ListBox
             @param row as SearchRow
         """
-        if Lp().player.is_party():
+        if Lp().player.is_party() or Lp().player.locked:
             if row.is_track():
-                Lp().player.load(Track(row.get_id()))
+                if Lp().player.locked:
+                    if row.get_id() in Lp().player.get_queue():
+                        Lp().player.del_from_queue(row.get_id())
+                    else:
+                        Lp().player.append_to_queue(row.get_id())
+                    row.destroy()
+                else:
+                    Lp().player.load(Track(row.get_id()))
             elif Gtk.get_minor_version() > 16:
                 popover = AlbumPopover(row.get_id(), [], [])
                 popover.set_relative_to(row)

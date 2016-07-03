@@ -35,6 +35,8 @@ class RadioWidget(Gtk.FlowBoxChild, AlbumWidget):
         self.get_style_context().add_class('loading')
         self._name = name
         self._cover = None
+        self._lock_overlay = False
+        self._show_overlay = False
         self._radios_manager = radios_manager
 
     def populate(self):
@@ -66,8 +68,8 @@ class RadioWidget(Gtk.FlowBoxChild, AlbumWidget):
         grid.add(self._overlay)
         grid.add(self._title_label)
         self._widget.add(grid)
-        self._widget.set_property('halign', Gtk.Align.CENTER)
-        self._widget.set_property('valign', Gtk.Align.CENTER)
+        self.set_property('halign', Gtk.Align.CENTER)
+        self.set_property('valign', Gtk.Align.CENTER)
         self.add(self._widget)
         self.set_cover()
         self.update_state()
@@ -90,11 +92,9 @@ class RadioWidget(Gtk.FlowBoxChild, AlbumWidget):
             Return preferred width
             @return (int, int)
         """
-        if self._cover is not None:
-            widths = self._cover.get_preferred_width()
-            return (widths[0] + 8, widths[1] + 8)
-        else:
-            return (0, 0)
+        # Padding: 3px, border: 1px + spacing
+        width = ArtSize.BIG + 16
+        return (width, width)
 
     def set_name(self, name):
         """
@@ -152,12 +152,14 @@ class RadioWidget(Gtk.FlowBoxChild, AlbumWidget):
             self._overlay.get_style_context().remove_class(
                                                     'cover-frame-selected')
 
-    def set_overlay(self, set):
+    def _show_overlay_func(self, set):
         """
             Set overlay
             @param set as bool
         """
-        if self._show_overlay == set:
+        if self._lock_overlay or\
+           self._show_overlay == set or\
+           (set is True and Lp().player.locked):
             return
         if set:
             # Play button
@@ -195,9 +197,9 @@ class RadioWidget(Gtk.FlowBoxChild, AlbumWidget):
             self._overlay.add_overlay(self._play_event)
             self._overlay.add_overlay(self._artwork_event)
             self._overlay.show_all()
-            AlbumWidget.set_overlay(self, True)
+            AlbumWidget._show_overlay_func(self, True)
         else:
-            AlbumWidget.set_overlay(self, False)
+            AlbumWidget._show_overlay_func(self, False)
             self._play_event.destroy()
             self._play_event = None
             self._play_button.destroy()
@@ -246,6 +248,5 @@ class RadioWidget(Gtk.FlowBoxChild, AlbumWidget):
         popover = RadioPopover(self._name, self._radios_manager)
         popover.set_relative_to(widget)
         popover.connect('closed', self._on_pop_cover_closed)
-        # Disable hidding overlay
-        self._show_overlay = False
+        self._lock_overlay = True
         popover.show()

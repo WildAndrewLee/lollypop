@@ -56,11 +56,12 @@ class Database:
                         duration INT,
                         tracknumber INT,
                         discnumber INT,
+                        discname TEXT,
                         album_id INT NOT NULL,
                         year INT,
                         popularity INT NOT NULL,
-                        ltime INT,
-                        mtime INT)'''
+                        ltime INT NOT NULL,
+                        mtime INT NOT NULL)'''
     create_track_artists = '''CREATE TABLE track_artists (
                                                 track_id INT NOT NULL,
                                                 artist_id INT NOT NULL)'''
@@ -70,6 +71,10 @@ class Database:
     create_album_artists_idx = '''CREATE index idx_aa ON album_artists(
                                                 album_id)'''
     create_track_artists_idx = '''CREATE index idx_ta ON track_artists(
+                                                track_id)'''
+    create_album_genres_idx = '''CREATE index idx_ag ON album_genres(
+                                                album_id)'''
+    create_track_genres_idx = '''CREATE index idx_tg ON track_genres(
                                                 track_id)'''
 
     def __init__(self):
@@ -99,6 +104,8 @@ class Database:
                     sql.execute(self.create_track_genres)
                     sql.execute(self.create_album_artists_idx)
                     sql.execute(self.create_track_artists_idx)
+                    sql.execute(self.create_album_genres_idx)
+                    sql.execute(self.create_track_genres_idx)
                     sql.commit()
                     Lp().settings.set_value('db-version',
                                             GLib.Variant('i', upgrade.count()))

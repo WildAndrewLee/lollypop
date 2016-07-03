@@ -10,7 +10,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from gi.repository import Gtk, Gio, GLib
+from gi.repository import Gtk, Gio, GLib, Pango
 
 from gettext import gettext as _
 
@@ -21,6 +21,82 @@ from lollypop.pop_playlists import PlaylistsPopover
 from lollypop.pop_queue import QueuePopover
 from lollypop.pop_externals import ExternalsPopover
 from lollypop.define import Lp, Shuffle, Type
+
+
+class PartyPopover(Gtk.Popover):
+    """
+        Show party options
+    """
+
+    def __init__(self):
+        """
+            Init popover
+        """
+        Gtk.Popover.__init__(self)
+
+        party_grid = Gtk.Grid()
+        party_grid.set_property('margin-start', 10)
+        party_grid.set_property('margin-end', 10)
+        party_grid.set_property('margin-bottom', 5)
+        party_grid.set_property('margin-top', 5)
+        party_grid.set_column_spacing(10)
+        party_grid.set_row_spacing(7)
+        party_grid.show()
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.add(party_grid)
+        scrolled.show()
+        self.add(scrolled)
+        size = Lp().window.get_size()
+        self.set_size_request(-1,
+                              size[1]*0.6)
+
+        genres = Lp().genres.get()
+        genres.insert(0, (Type.POPULARS, _("Populars")))
+        genres.insert(1, (Type.RECENTS, _("Recently added")))
+        ids = Lp().player.get_party_ids()
+        i = 0
+        x = 0
+        for genre_id, genre in genres:
+            label = Gtk.Label()
+            label.set_property('halign', Gtk.Align.START)
+            label.set_ellipsize(Pango.EllipsizeMode.END)
+            label.set_text(genre)
+            label.set_tooltip_text(genre)
+            label.show()
+            switch = Gtk.Switch()
+            if genre_id in ids:
+                switch.set_state(True)
+            switch.connect("state-set", self._on_switch_state_set, genre_id)
+            switch.show()
+            party_grid.attach(label, x, i, 1, 1)
+            party_grid.attach(switch, x+1, i, 1, 1)
+            if x == 0:
+                x += 2
+            else:
+                label.set_property('margin-start', 15)
+                i += 1
+                x = 0
+
+    def _on_switch_state_set(self, widget, state, genre_id):
+        """
+            Update party ids when use change a switch in dialog
+            @param widget as Gtk.Switch
+            @param state as bool, genre id as int
+        """
+        ids = Lp().player.get_party_ids()
+        if state:
+            try:
+                ids.append(genre_id)
+            except:
+                pass
+        else:
+            try:
+                ids.remove(genre_id)
+            except:
+                pass
+        Lp().settings.set_value('party-ids',  GLib.Variant('ai', ids))
+        Lp().player.set_party(True)
 
 
 class ToolbarEnd(Gtk.Bin):
@@ -38,7 +114,6 @@ class ToolbarEnd(Gtk.Bin):
         self.connect('hide', self._on_hide)
         self._next_popover = NextPopover()
         self._search = None
-        self._timeout_id = None
         self._next_was_inhibited = False
         builder = Gtk.Builder()
         builder.add_from_resource('/org/gnome/Lollypop/ToolbarEnd.ui')
@@ -77,9 +152,10 @@ class ToolbarEnd(Gtk.Bin):
         list_action = Gio.SimpleAction.new('list', None)
         list_action.connect('activate', self._on_list_button_clicked)
         app.add_action(list_action)
-        app.set_accels_for_action("app.list", ["<Control>l"])
+        app.set_accels_for_action("app.list", ["<Control>i"])
         self._list_popover = None
         Lp().player.connect('party-changed', self._on_party_changed)
+        Lp().player.connect('lock-changed', self._on_lock_changed)
 
     def setup_menu(self, menu):
         """
@@ -110,10 +186,10 @@ class ToolbarEnd(Gtk.Bin):
         if self._shuffle_button.get_active() or\
            not self._grid_next.is_visible():
             return
-        self._timeout_id = None
         if self._next_popover.should_be_shown() or force:
-            self._next_popover.update()
-            if not self._next_popover.is_visible():
+            if self._next_popover.is_visible():
+                self._next_popover.update()
+            else:
                 self._next_popover.set_relative_to(self._grid_next)
                 self._next_popover.show()
         else:
@@ -122,33 +198,21 @@ class ToolbarEnd(Gtk.Bin):
 #######################
 # PRIVATE             #
 #######################
+    def _on_lock_changed(self, player):
+        """
+            Lock toolbar
+            @param player as Player
+        """
+        self._party_button.set_sensitive(not player.locked)
+        self._list_button.set_sensitive(not player.locked)
+        self._shuffle_button.set_sensitive(not player.locked)
+
     def _on_shuffle_button_clicked(self, button):
         """
             Hide next popover
             @param button as Gtk.Button
         """
         self._next_popover.hide()
-
-    def _on_button_press(self, button, event):
-        """
-            Show next popover on long press
-            @param button as Gtk.Button
-            @param event as Gdk.Event
-        """
-        self._timeout_id = GLib.timeout_add(500, self.on_next_changed,
-                                            Lp().player, True)
-
-    def _on_button_release(self, button, event):
-        """
-            If next popover shown, block event
-            @param button as Gtk.Button
-            @param event as Gdk.Event
-        """
-        if self._timeout_id is None:
-            return True
-        else:
-            GLib.source_remove(self._timeout_id)
-            self._timeout_id = None
 
     def _set_shuffle_icon(self):
         """
@@ -292,6 +356,21 @@ class ToolbarEnd(Gtk.Bin):
             @param widget as Gtk.Widget
         """
         self._next_popover.hide()
+
+    def _on_button_press_event(self, eventbox, event):
+        """
+            Show party popover
+            @param eventbox as Gtk.EventBox
+            @param event as Gdk.Event
+        """
+        if event.button == 3:
+            popover = PartyPopover()
+            popover.set_relative_to(eventbox)
+            self._next_popover.hide()
+            popover.connect('closed', self._on_popover_closed)
+            self._next_popover.inhibit(True)
+            popover.show()
+            return True
 
     def _on_list_button_query_tooltip(self, widget, x, y, keyboard, tooltip):
         """

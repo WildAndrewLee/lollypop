@@ -46,8 +46,10 @@ class DeviceManagerWidget(Gtk.Bin, MtpSync):
         self._switch_albums = builder.get_object('switch_albums')
         self._switch_albums.set_state(Lp().settings.get_value('sync-albums'))
         self._switch_mp3 = builder.get_object('switch_mp3')
+        self._switch_normalize = builder.get_object('switch_normalize')
         if not self._check_encoder_status():
             self._switch_mp3.set_sensitive(False)
+            self._switch_normalize.set_sensitive(False)
             self._switch_mp3.set_tooltip_text(_("You need to install " +
                                               "gstreamer-plugins-ugly"))
         else:
@@ -73,13 +75,15 @@ class DeviceManagerWidget(Gtk.Bin, MtpSync):
         renderer0 = Gtk.CellRendererToggle()
         renderer0.set_property('activatable', True)
         renderer0.connect('toggled', self._on_playlist_toggled)
-        column0 = Gtk.TreeViewColumn("toggle", renderer0, active=0)
+        column0 = Gtk.TreeViewColumn(" ✓", renderer0, active=0)
+        column0.set_clickable(True)
+        column0.connect('clicked', self._on_column0_clicked)
 
         renderer1 = Gtk.CellRendererText()
         renderer1.set_property('ellipsize-set', True)
         renderer1.set_property('ellipsize', Pango.EllipsizeMode.END)
         renderer1.set_property('editable', True)
-        column1 = Gtk.TreeViewColumn('text', renderer1, text=1)
+        column1 = Gtk.TreeViewColumn(_("Playlists"), renderer1, text=1)
         column1.set_expand(True)
 
         self._view.append_column(column0)
@@ -132,7 +136,9 @@ class DeviceManagerWidget(Gtk.Bin, MtpSync):
             playlists.append(Type.ALL)
 
         t = Thread(target=self._sync,
-                   args=(playlists, self._switch_mp3.get_active()))
+                   args=(playlists,
+                         self._switch_mp3.get_active(),
+                         self._switch_normalize.get_active()))
         t.daemon = True
         t.start()
 
@@ -142,7 +148,7 @@ class DeviceManagerWidget(Gtk.Bin, MtpSync):
         """
         self._syncing = False
 
-    def set_overlay(self, bool):
+    def show_overlay(self, bool):
         """
             No overlay here now
         """
@@ -253,6 +259,21 @@ class DeviceManagerWidget(Gtk.Bin, MtpSync):
             @param state as bool
         """
         Lp().settings.set_value('convert-mp3', GLib.Variant('b', state))
+        if not state:
+            self._switch_normalize.set_active(False)
+            Lp().settings.set_value('normalize-mp3',
+                                    GLib.Variant('b', False))
+
+    def _on_normalize_state_set(self, widget, state):
+        """
+            Save option
+            @param widget as Gtk.Switch
+            @param state as bool
+        """
+        Lp().settings.set_value('normalize-mp3', GLib.Variant('b', state))
+        if state:
+            self._switch_mp3.set_active(True)
+            Lp().settings.set_value('convert-mp3', GLib.Variant('b', True))
 
     def _on_response(self, infobar, response_id):
         """
@@ -262,6 +283,18 @@ class DeviceManagerWidget(Gtk.Bin, MtpSync):
         """
         if response_id == Gtk.ResponseType.CLOSE:
             self._infobar.hide()
+
+    def _on_column0_clicked(self, column):
+        """
+            Select/Unselect all playlists
+            @param column as Gtk.TreeViewColumn
+        """
+        selected = False
+        for item in self._model:
+            if item[0]:
+                selected = True
+        for item in self._model:
+            item[0] = not selected
 
     def _on_playlist_toggled(self, view, path):
         """

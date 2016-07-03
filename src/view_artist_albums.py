@@ -14,7 +14,7 @@ from gi.repository import Gtk, GLib, GObject
 
 from lollypop.view import LazyLoadingView, View
 from lollypop.view_container import ViewContainer
-from lollypop.define import Lp, Type
+from lollypop.define import Lp, Type, ArtSize
 from lollypop.objects import Track
 from lollypop.widgets_album import AlbumDetailedWidget
 
@@ -38,17 +38,26 @@ class ArtistAlbumsView(LazyLoadingView):
         self._artist_ids = artist_ids
         self._genre_ids = genre_ids
         self._show_cover = show_cover
-        self._albums_count = 0
+
+        self._spinner = Gtk.Spinner()
+        self._spinner.set_hexpand(True)
+        self._spinner.set_vexpand(True)
+        spinner_size = int(ArtSize.BIG / 3)
+        self._spinner.set_size_request(spinner_size, spinner_size)
+        self._spinner.set_property('halign', Gtk.Align.CENTER)
+        self._spinner.set_property('valign', Gtk.Align.CENTER)
+        self._spinner.show()
 
         self._albumbox = Gtk.Grid()
-        self._albumbox.set_row_spacing(20)
+        self._albumbox.set_row_spacing(5)
         self._albumbox.set_property("orientation", Gtk.Orientation.VERTICAL)
         self._albumbox.show()
+        self._viewport.add(self._albumbox)
 
-        self._scrolled.set_property('expand', True)
-        self._viewport.set_property("valign", Gtk.Align.START)
+        self._albumbox.set_property("valign", Gtk.Align.START)
         self._overlay = Gtk.Overlay.new()
         self._overlay.add(self._scrolled)
+        self._overlay.add_overlay(self._spinner)
         self._overlay.show()
         self.add(self._overlay)
 
@@ -58,7 +67,8 @@ class ArtistAlbumsView(LazyLoadingView):
             @param albums as [int]
         """
         if albums:
-            self._albums_count = len(albums)
+            if len(albums) != 1:
+                self._spinner.start()
             self._add_albums(albums)
 
     def jump_to_current(self):
@@ -88,7 +98,7 @@ class ArtistAlbumsView(LazyLoadingView):
             @return height as int
         """
         height = 0
-        for child in self._albumbox.get_children():
+        for child in self._get_children():
             height += child.requested_height
         return height
 
@@ -119,7 +129,7 @@ class ArtistAlbumsView(LazyLoadingView):
     def _get_children(self):
         """
             Return view children
-            @return [AlbumWidget]
+            @return [AlbumDetailedWidget]
         """
         children = []
         for child in self._albumbox.get_children():
@@ -140,15 +150,12 @@ class ArtistAlbumsView(LazyLoadingView):
                                          self._artist_ids,
                                          self._show_cover)
             self._lazy_queue.append(widget)
-            # Not needed if only one album
-            if self._albums_count == 1:
-                widget.disable_play_all()
             widget.show()
             self._albumbox.add(widget)
             GLib.idle_add(self._add_albums, albums)
         else:
-            if self._viewport.get_child() is None:
-                self._viewport.add(self._albumbox)
+            self._spinner.stop()
+            self._spinner.hide()
             self.emit('populated')
             GLib.idle_add(self.lazy_loading)
 
@@ -224,7 +231,8 @@ class CurrentArtistAlbumsView(ViewContainer):
         spinner = Gtk.Spinner()
         spinner.set_hexpand(True)
         spinner.set_vexpand(True)
-        spinner.set_size_request(100, 100)
+        spinner_size = int(ArtSize.BIG / 3)
+        spinner.set_size_request(spinner_size, spinner_size)
         spinner.set_property('halign', Gtk.Align.CENTER)
         spinner.set_property('valign', Gtk.Align.CENTER)
         spinner.start()

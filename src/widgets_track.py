@@ -10,7 +10,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from gi.repository import GObject, Gtk, Gdk, Pango
+from gi.repository import GObject, Gtk, Gdk, Pango, GLib, Gst
 
 from cgi import escape
 
@@ -38,6 +38,8 @@ class Row(Gtk.ListBoxRow):
         self._artists_label = None
         self._track = Track(rowid)
         self._number = num
+        self._timeout_id = None
+        self._player_preview = None
         self._indicator = IndicatorWidget(self._track.id)
         self.set_indicator(Lp().player.current_track.id == self._track.id,
                            utils.is_loved(self._track.id))
@@ -65,6 +67,7 @@ class Row(Gtk.ListBoxRow):
             self._artists_label.set_property('halign', Gtk.Align.END)
             self._artists_label.set_ellipsize(Pango.EllipsizeMode.END)
             self._artists_label.set_opacity(0.3)
+            self._artists_label.set_margin_end(5)
             self._artists_label.show()
         self._duration_label = Gtk.Label.new(
                                        seconds_to_string(self._track.duration))
@@ -151,6 +154,16 @@ class Row(Gtk.ListBoxRow):
 #######################
 # PRIVATE             #
 #######################
+    def _play_preview(self):
+        """
+            Play track
+            @param widget as Gtk.Widget
+        """
+        Lp().player.preview.set_property('uri', self._track.uri)
+        Lp().player.preview.set_state(Gst.State.PLAYING)
+        self.set_indicator(True, False)
+        self._timeout_id = None
+
     def _on_map(self, widget):
         """
             Fix for Gtk < 3.18,
@@ -171,6 +184,9 @@ class Row(Gtk.ListBoxRow):
             @param widget as Gtk.Widget
             @param event as Gdk.Event
         """
+        if Lp().settings.get_value('preview-output').get_string() != '':
+            widget.connect('leave-notify-event', self._on_leave_notify)
+            self._timeout_id = GLib.timeout_add(500, self._play_preview)
         if self._menu_button.get_image() is None:
             image = Gtk.Image.new_from_icon_name('open-menu-symbolic',
                                                  Gtk.IconSize.MENU)
@@ -178,6 +194,20 @@ class Row(Gtk.ListBoxRow):
             self._menu_button.set_image(image)
             self._menu_button.connect('clicked', self._on_button_clicked)
             self._indicator.update_button()
+
+    def _on_leave_notify(self, widget, event):
+        """
+            Stop preview
+            @param widget as Gtk.Widget
+            @param event as Gdk.Event
+        """
+        if self._timeout_id is not None:
+            GLib.source_remove(self._timeout_id)
+            self._timeout_id = None
+        self.set_indicator(Lp().player.current_track.id == self._track.id,
+                           utils.is_loved(self._track.id))
+        Lp().player.preview.set_state(Gst.State.NULL)
+        widget.disconnect_by_func(self._on_leave_notify)
 
     def _on_button_press(self, widget, event):
         """
@@ -383,15 +413,18 @@ class PlaylistRow(Row):
             @param info as int
             @param time as int
         """
-        src = int(data.get_text())
-        if self._track.id == src:
-            return
-        height = self.get_allocated_height()
-        if y > height/2:
-            up = False
-        else:
-            up = True
-        self.emit('track-moved', self._track.id, src, up)
+        try:
+            src = int(data.get_text())
+            if self._track.id == src:
+                return
+            height = self.get_allocated_height()
+            if y > height/2:
+                up = False
+            else:
+                up = True
+            self.emit('track-moved', self._track.id, src, up)
+        except:
+            pass
 
     def _on_drag_motion(self, widget, context, x, y, time):
         """
@@ -468,10 +501,10 @@ class TracksWidget(Gtk.ListBox):
         'activated': (GObject.SignalFlags.RUN_FIRST, None, (int,))
     }
 
-    def __init__(self):
+    def __init__(self, dnd=False):
         """
             Init track widget
-            @param show_loved as bool
+            @param drag and drop as bool
         """
         Gtk.ListBox.__init__(self)
         self.connect('destroy', self._on_destroy)
@@ -487,6 +520,11 @@ class TracksWidget(Gtk.ListBox):
         self.get_style_context().add_class('trackswidget')
         self.set_property('hexpand', True)
         self.set_property('selection-mode', Gtk.SelectionMode.NONE)
+        if dnd:
+            self.drag_dest_set(Gtk.DestDefaults.DROP | Gtk.DestDefaults.MOTION,
+                               [], Gdk.DragAction.MOVE)
+            self.drag_dest_add_text_targets()
+            self.connect('drag-data-received', self._on_drag_data_received)
 
     def update_headers(self, prev_album_id=None):
         """
@@ -523,6 +561,24 @@ class TracksWidget(Gtk.ListBox):
 #######################
 # PRIVATE             #
 #######################
+    def _on_drag_data_received(self, widget, context, x, y, data, info, time):
+        """
+            Move track
+            @param widget as Gtk.Widget
+            @param context as Gdk.DragContext
+            @param x as int
+            @param y as int
+            @param data as Gtk.SelectionData
+            @param info as int
+            @param time as int
+        """
+        try:
+            bottom_row = self.get_children()[-1]
+            bottom_row.emit('track-moved', bottom_row.get_id(),
+                            int(data.get_text()), False)
+        except:
+            pass
+
     def _on_queue_changed(self, unused):
         """
             Update all position labels

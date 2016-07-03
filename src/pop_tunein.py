@@ -74,11 +74,8 @@ class TuneinPopover(Gtk.Popover):
         self._stack.add_named(builder.get_object('notfound'), 'notfound')
         self._stack.add_named(self._scrolled, 'scrolled')
         self.add(widget)
-        size_setting = Lp().settings.get_value('window-size')
-        if isinstance(size_setting[1], int):
-            self.set_size_request(700, size_setting[1]*0.7)
-        else:
-            self.set_size_request(700, 400)
+        self.connect('map', self._on_map)
+        self.connect('unmap', self._on_unmap)
 
     def populate(self, url=None):
         """
@@ -269,6 +266,24 @@ class TuneinPopover(Gtk.Popover):
             print("TuneinPopover::_add_radio: %s" % e)
         self._radios_manager.add(item.TEXT.replace('/', '-'), url)
 
+    def _on_map(self, widget):
+        """
+            Resize and disable global shortcuts
+            @param widget as Gtk.Widget
+        """
+        # FIXME Not needed with GTK >= 3.18
+        Lp().window.enable_global_shorcuts(False)
+        size = Lp().window.get_size()
+        self.set_size_request(size[0]*0.5, size[1]*0.7)
+
+    def _on_unmap(self, widget):
+        """
+            Enable global shorcuts
+            @param widget as Gtk.Widget
+        """
+        # FIXME Not needed with GTK >= 3.18
+        Lp().window.enable_global_shorcuts(True)
+
     def _on_back_btn_clicked(self, btn):
         """
             Go to previous URL
@@ -309,6 +324,11 @@ class TuneinPopover(Gtk.Popover):
                 t = Thread(target=Lp().art.copy_uri_to_cache,
                            args=(item.LOGO, item.TEXT,
                                  Lp().window.toolbar.artsize))
+                t.daemon = True
+                t.start()
+                t = Thread(target=Lp().art.copy_uri_to_cache,
+                           args=(item.LOGO, item.TEXT,
+                                 ArtSize.BIG))
                 t.daemon = True
                 t.start()
             Lp().player.load_external(item.URL, item.TEXT)

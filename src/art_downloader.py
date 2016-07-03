@@ -15,7 +15,6 @@ from gi.repository import GLib, Gio
 from threading import Thread
 import json
 
-from lollypop.objects import Album
 from lollypop.cache import InfoCache
 from lollypop.define import Lp
 from lollypop.utils import debug
@@ -135,6 +134,7 @@ class ArtDownloader:
         # TODO Make this code more generic
         for (artist_id, artist) in Lp().artists.get([]):
             debug("ArtDownloader::_cache_artists_art(): %s" % artist)
+            artwork_set = False
             if not Gio.NetworkMonitor.get_default().get_network_available() or\
                     InfoCache.exists_in_cache(artist):
                 continue
@@ -145,7 +145,10 @@ class ArtDownloader:
                         s = Gio.File.new_for_uri(url)
                         (status, data, tag) = s.load_contents()
                         if status:
+                            artwork_set = True
                             InfoCache.cache(artist, content, data, "lastfm")
+                        else:
+                            InfoCache.cache(artist, None, None, "lastfm")
                 except:
                     InfoCache.cache(artist, None, None, "lastfm")
             if ArtDownloader.Wikipedia is not None:
@@ -156,7 +159,10 @@ class ArtDownloader:
                         s = Gio.File.new_for_uri(url)
                         (status, data, tag) = s.load_contents()
                         if status:
+                            artwork_set = True
                             InfoCache.cache(artist, content, data, "wikipedia")
+                        else:
+                            InfoCache.cache(artist, None, None, "wikipedia")
                 except:
                     InfoCache.cache(artist, None, None, "wikipedia")
             url = self._get_spotify_artist_artwork(artist)
@@ -164,7 +170,12 @@ class ArtDownloader:
                 s = Gio.File.new_for_uri(url)
                 (status, data, tag) = s.load_contents()
                 if status:
+                    artwork_set = True
                     InfoCache.cache(artist, None, data, "spotify")
+                else:
+                    InfoCache.cache(artist, None, None, "spotify")
+            if artwork_set:
+                Lp().art.emit('artist-artwork-changed', artist)
         self._cache_artists_running = False
 
     def _download_albums_art(self):
@@ -187,8 +198,6 @@ class ArtDownloader:
                 continue
             try:
                     Lp().art.save_album_artwork(data, album_id)
-                    Lp().art.clean_album_cache(Album(album_id))
-                    GLib.idle_add(Lp().art.album_artwork_update, album_id)
             except Exception as e:
                 print("ArtDownloader::_download_albums_art: %s" % e)
                 self._albums_history.append(album_id)

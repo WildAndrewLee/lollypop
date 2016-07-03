@@ -38,6 +38,7 @@ class View(Gtk.Grid):
         self._new_ids = []
 
         self._scrolled = Gtk.ScrolledWindow()
+        self._scrolled.connect('leave-notify-event', self._on_leave_notify)
         self._scrolled.show()
         self._viewport = Gtk.Viewport()
         self._scrolled.add(self._viewport)
@@ -76,7 +77,7 @@ class View(Gtk.Grid):
         """
         if widgets:
             widget = widgets.pop(0)
-            widget.set_overlay(False)
+            widget.show_overlay(False)
             GLib.idle_add(self._disable_overlays, widgets)
 
     def _update_widgets(self, widgets):
@@ -95,6 +96,19 @@ class View(Gtk.Grid):
             Return view children
         """
         return []
+
+    def _on_leave_notify(self, widget, event):
+        """
+            Update overlays as internal widget may not have received the signal
+            @param widget as Gtk.Widget
+            @param event as Gdk.event
+        """
+        allocation = widget.get_allocation()
+        if event.x <= 0 or\
+           event.x >= allocation.width or\
+           event.y <= 0 or\
+           event.y >= allocation.height:
+            self.disable_overlays()
 
     def _on_destroy(self, widget):
         """
@@ -157,6 +171,19 @@ class LazyLoadingView(View):
             @param widgets as [AlbumSimpleWidgets]
             @param scroll_value as float
         """
+        GLib.idle_add(self._lazy_loading, widgets, scroll_value)
+
+#######################
+# PRIVATE             #
+#######################
+    def _lazy_loading(self, widgets=[], scroll_value=0):
+        """
+            Load the view in a lazy way:
+                - widgets first
+                - _waiting_init then
+            @param widgets as [AlbumSimpleWidgets]
+            @param scroll_value as float
+        """
         widget = None
         if self._stop or self._scroll_value != scroll_value:
             return False
@@ -172,9 +199,6 @@ class LazyLoadingView(View):
             else:
                 GLib.idle_add(self.lazy_loading, widgets, scroll_value)
 
-#######################
-# PRIVATE             #
-#######################
     def _is_visible(self, widget):
         """
             Is widget visible in scrolled

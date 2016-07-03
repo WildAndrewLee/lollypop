@@ -117,6 +117,7 @@ class AlbumRow(Gtk.ListBoxRow):
         grid.attach(vgrid, 1, 1, 1, 1)
         row_widget.add(grid)
         self.add(row_widget)
+        self.get_style_context().add_class('trackrow')
         self.show_play_indicator(self._album.id ==
                                  Lp().player.current_track.album.id)
         self.show_all()
@@ -131,7 +132,6 @@ class AlbumRow(Gtk.ListBoxRow):
         self.connect('drag-data-received', self._on_drag_data_received)
         self.connect('drag-motion', self._on_drag_motion)
         self.connect('drag-leave', self._on_drag_leave)
-        self.get_style_context().add_class('trackrow')
 
     def do_get_preferred_height(self):
         """
@@ -196,7 +196,10 @@ class AlbumRow(Gtk.ListBoxRow):
             @param info as int
             @param time as int
         """
-        self.emit('track-moved', int(data.get_text()), x, y)
+        try:
+            self.emit('track-moved', int(data.get_text()), x, y)
+        except:
+            pass
 
     def _on_drag_motion(self, widget, context, x, y, time):
         """
@@ -316,6 +319,10 @@ class AlbumsView(LazyLoadingView):
         self.add(grid)
         self._scrolled.set_property('expand', True)
         self.add(self._scrolled)
+        self.drag_dest_set(Gtk.DestDefaults.DROP | Gtk.DestDefaults.MOTION,
+                           [], Gdk.DragAction.MOVE)
+        self.drag_dest_add_text_targets()
+        self.connect('drag-data-received', self._on_drag_data_received)
 
     def populate(self):
         """
@@ -492,6 +499,23 @@ class AlbumsView(LazyLoadingView):
             self._view.insert(src_row, row_index)
             Lp().player.move_album(src, row_index)
 
+    def _on_drag_data_received(self, widget, context, x, y, data, info, time):
+        """
+            Move track
+            @param widget as Gtk.Widget
+            @param context as Gdk.DragContext
+            @param x as int
+            @param y as int
+            @param data as Gtk.SelectionData
+            @param info as int
+            @param time as int
+        """
+        try:
+            self._on_track_moved(self._view.get_children()[-1],
+                                 int(data.get_text()), x, y)
+        except:
+            pass
+
 
 class AlbumsPopover(Gtk.Popover):
     """
@@ -503,15 +527,16 @@ class AlbumsPopover(Gtk.Popover):
             Init popover
         """
         Gtk.Popover.__init__(self)
-        self.set_position(Gtk.PositionType.BOTTOM)
         view = AlbumsView()
         view.show()
+        self.set_position(Gtk.PositionType.BOTTOM)
+        self.connect('map', self._on_map)
         self.add(view)
 
-    def do_show(self):
+    def _on_map(self, widget):
         """
-            Set widget size
+            Resize
+            @param widget as Gtk.Widget
         """
         height = Lp().window.get_size()[1]
         self.set_size_request(400, height*0.7)
-        Gtk.Popover.do_show(self)

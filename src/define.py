@@ -69,13 +69,23 @@ class GstPlayFlags:
     GST_PLAY_FLAG_TEXT = 1 << 3   # We want subtitle output
 
 
+class Loading:
+    NONE = 0
+    LEFT = 1
+    RIGHT = 2
+    ALL = 3
+    STOP = 4
+
+
 class ArtSize:
     SMALL = 33
     MEDIUM = 48  # If changed, adapt width request in AlbumRow
     ARTIST_SMALL = 60
     BIG = 200
-    MONSTER = 500
+    FULLSCREEN = 500
     ARTIST = 800
+    MONSTER = 900
+    MAX = 4000
 
 
 class Shuffle:
@@ -89,6 +99,13 @@ class WindowSize:
     MEDIUM = 500
     BIG = 700
     MONSTER = 800
+
+
+class OrderBy:
+    ARTIST = 0
+    NAME = 1
+    YEAR = 2
+    POPULARITY = 3
 
 
 # Order is important

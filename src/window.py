@@ -10,12 +10,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-from gi.repository import Gtk, Gio, GLib
+from gi.repository import Gtk, Gio, Gdk, GLib
 
 from lollypop.container import Container
 from lollypop.define import Lp, NextContext, Shuffle, WindowSize
 from lollypop.toolbar import Toolbar
-from lollypop.utils import is_unity
+from lollypop.utils import is_unity, set_loved, is_loved
 from lollypop.miniplayer import MiniPlayer
 
 
@@ -38,7 +38,6 @@ class Window(Gtk.ApplicationWindow, Container):
                                        application=app,
                                        title="Lollypop")
         self.connect('hide', self._on_hide)
-        self.connect('leave-notify-event', self._on_leave_notify)
         self._timeout_configure = None
         seek_action = Gio.SimpleAction.new('seek',
                                            GLib.VariantType.new('i'))
@@ -110,6 +109,10 @@ class Window(Gtk.ApplicationWindow, Container):
                                             ["<Control>n"])
             self._app.set_accels_for_action("app.player::prev",
                                             ["p"])
+            self._app.set_accels_for_action("app.player::loved",
+                                            ["l"])
+            self._app.set_accels_for_action("app.player::locked",
+                                            ["<Control>l"])
         else:
             self._app.set_accels_for_action("app.seek(10)", [None])
             self._app.set_accels_for_action("app.seek(20)", [None])
@@ -124,6 +127,7 @@ class Window(Gtk.ApplicationWindow, Container):
             self._app.set_accels_for_action("app.player::next", [None])
             self._app.set_accels_for_action("app.player::next_album", [None])
             self._app.set_accels_for_action("app.player::prev", [None])
+            self._app.set_accels_for_action("app.player::loved", [None])
 
     def setup_window(self):
         """
@@ -176,6 +180,16 @@ class Window(Gtk.ApplicationWindow, Container):
             toolbar as Toolbar
         """
         return self._toolbar
+
+    def do_event(self, event):
+        """
+            Update overlays as internal widget may not have received the signal
+            @param widget as Gtk.Widget
+            @param event as Gdk.event
+        """
+        if event.type == Gdk.EventType.FOCUS_CHANGE:
+            self.disable_overlays()
+        Gtk.ApplicationWindow.do_event(self, event)
 
 ############
 # Private  #
@@ -410,7 +424,8 @@ class Window(Gtk.ApplicationWindow, Container):
         if seek > Lp().player.current_track.duration:
             seek = Lp().player.current_track.duration - 2
         Lp().player.seek(seek)
-        self._toolbar.update_position(seek*60)
+        if Lp().player.current_track.id is not None:
+            self._toolbar.update_position(seek*60)
 
     def _on_player_action(self, action, param):
         """
@@ -440,6 +455,21 @@ class Window(Gtk.ApplicationWindow, Container):
                 Lp().player.next()
         elif string == "prev":
             Lp().player.prev()
+        elif string == "locked":
+            Lp().player.lock()
+        elif string == "loved":
+            if Lp().player.current_track.id is not None:
+                isloved = is_loved(Lp().player.current_track.id)
+                set_loved(Lp().player.current_track.id, not isloved)
+                if Lp().notify is not None:
+                    if isloved:
+                        heart = "♡"
+                    else:
+                        heart = "❤"
+                    Lp().notify.send("%s - %s: %s" % (
+                                ", ".join(Lp().player.current_track.artists),
+                                Lp().player.current_track.name,
+                                heart))
 
     def _on_realize(self, widget):
         """
@@ -451,11 +481,3 @@ class Window(Gtk.ApplicationWindow, Container):
             # No idea why, maybe scanner using Gstpbutils before Gstreamer
             # initialisation is finished...
             GLib.timeout_add(2000, self.update_db)
-
-    def _on_leave_notify(self, widget, event):
-        """
-            Update overlays as internal widget may not have received the signal
-            @param widget as Gtk.Widget
-            @param event as Gdk.event
-        """
-        self.disable_overlays()

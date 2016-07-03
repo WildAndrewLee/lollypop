@@ -15,7 +15,7 @@ import os
 import itertools
 
 from lollypop.sqlcursor import SqlCursor
-from lollypop.define import Lp, Type
+from lollypop.define import Lp, Type, OrderBy
 from lollypop.utils import remove_static_genres
 
 
@@ -437,6 +437,23 @@ class AlbumsDatabase:
                     albums.append(album)
         return albums
 
+    def get_disc_names(self, album_id, disc):
+        """
+            Get disc names
+            @param album id as int
+            @param disc as int
+            @return name as str
+        """
+        with SqlCursor(Lp().db) as sql:
+            request = "SELECT DISTINCT discname\
+                       FROM tracks\
+                       WHERE tracks.album_id=?\
+                       AND tracks.discnumber=?\
+                       AND discname!=''"
+            filters = (album_id, disc)
+            result = sql.execute(request, filters)
+            return list(itertools.chain(*result))
+
     def get_discs(self, album_id, genre_ids):
         """
             Get disc numbers
@@ -500,9 +517,9 @@ class AlbumsDatabase:
             result = sql.execute(request, filters)
             return list(itertools.chain(*result))
 
-    def get_tracks_path(self, album_id, genre_ids, artist_ids):
+    def get_track_paths(self, album_id, genre_ids, artist_ids):
         """
-            Get tracks path for album id/disc
+            Get track paths for album id/disc
             Will search track from albums from same artist
             with same name and different genre
             @param album id as int
@@ -591,6 +608,25 @@ class AlbumsDatabase:
             @return Array of album ids as int
         """
         genre_ids = remove_static_genres(genre_ids)
+        orderby = Lp().settings.get_enum('orderby')
+        if orderby == OrderBy.ARTIST:
+            order = "ORDER BY artists.sortname\
+                     COLLATE NOCASE COLLATE NOCASE,\
+                     albums.year,\
+                     albums.name\
+                     COLLATE NOCASE COLLATE NOCASE"
+        elif orderby == OrderBy.NAME:
+            order = "ORDER BY albums.name\
+                     COLLATE NOCASE COLLATE NOCASE"
+        elif orderby == OrderBy.YEAR:
+            order = "ORDER BY albums.year,\
+                     albums.name\
+                     COLLATE NOCASE COLLATE NOCASE"
+        else:
+            order = "ORDER BY albums.popularity DESC,\
+                     albums.name\
+                     COLLATE NOCASE COLLATE NOCASE"
+
         with SqlCursor(Lp().db) as sql:
             result = []
             # Get albums for all artists
@@ -600,10 +636,7 @@ class AlbumsDatabase:
                                   FROM albums, artists, album_artists\
                                   WHERE artists.rowid=album_artists.artist_id\
                                   AND albums.rowid=album_artists.album_id\
-                                  ORDER BY albums.name\
-                                  COLLATE NOCASE,\
-                                  albums.year\
-                                  COLLATE NOCASE")
+                                  %s" % order)
             # Get albums for genre
             elif not artist_ids:
                 genres = tuple(genre_ids)
@@ -614,10 +647,7 @@ class AlbumsDatabase:
                            AND album_genres.album_id=albums.rowid AND ("
                 for genre_id in genre_ids:
                     request += "album_genres.genre_id=? OR "
-                request += "1=0) ORDER BY artists.sortname\
-                            COLLATE NOCASE COLLATE LOCALIZED,\
-                            albums.year,\
-                            albums.name COLLATE NOCASE COLLATE LOCALIZED"
+                request += "1=0) %s" % order
                 result = sql.execute(request, genres)
             # Get albums for artist
             elif not genre_ids:
@@ -628,8 +658,7 @@ class AlbumsDatabase:
                            album_artists.album_id=albums.rowid AND ("
                 for artist_id in artist_ids:
                     request += "album_artists.artist_id=? OR "
-                request += "1=0) ORDER BY artists.name COLLATE NOCASE COLLATE LOCALIZED,\
-                            year, albums.name COLLATE NOCASE COLLATE LOCALIZED"
+                request += "1=0) %s" % order
                 result = sql.execute(request, artists)
             # Get albums for artist id and genre id
             else:
@@ -645,9 +674,7 @@ class AlbumsDatabase:
                 request += "1=0) AND ("
                 for genre_id in genre_ids:
                     request += "album_genres.genre_id=? OR "
-                request += "1=0) ORDER BY artists.name\
-                            COLLATE NOCASE COLLATE LOCALIZED,\
-                            year, albums.name COLLATE NOCASE COLLATE LOCALIZED"
+                request += "1=0) %s" % order
                 result = sql.execute(request, filters)
             return list(itertools.chain(*result))
 

@@ -5,6 +5,12 @@
        <value nick="tracks" value="1"/>
        <value nick="albums" value="2"/>
     </enum>
+    <enum id="org.gnome.Lollypop.OrderBy">
+       <value nick="artist" value="0"/>
+       <value nick="album" value="1"/>
+       <value nick="year" value="2"/>
+       <value nick="popularity" value="3"/>
+    </enum>
     <schema path="/org/gnome/Lollypop/" id="org.gnome.Lollypop" gettext-domain="lollypop">
         <key type="ai" name="window-size">
             <default>[768, 600]</default>
@@ -25,6 +31,11 @@
             <default>[]</default>
             <summary>Mini player position</summary>
             <description>Window position (x and y).</description>
+        </key>
+        <key type="b" name="artwork-tags">
+            <default>false</default>
+            <summary>Save artwork in tags</summary>
+            <description></description>
         </key>
         <key type="b" name="repeat">
             <default>true</default>
@@ -66,6 +77,11 @@
             <summary>INTERNAL</summary>
             <description></description>
         </key>
+	<key type="s" name="preview-output">
+            <default>""</default>
+            <summary>Audio output preview on track hover</summary>
+            <description>Pulseaudio only. Example: alsa_output.pci-0000_00_14.2.analog-stereo. Command to get outputs: $ pacmd list-sinks|grep 'name:'</description>
+        </key>
         <key type="s" name="favorite-cover">
             <default>"cover.jpg"</default>
             <summary>Favorite cover file</summary>
@@ -94,6 +110,11 @@
          <key type="b" name="convert-mp3">
             <default>false</default>
             <summary>Convert to MP3(MTP)</summary>
+            <description></description>
+        </key>
+         <key type="b" name="normalize-mp3">
+            <default>false</default>
+            <summary>Normalize MP3(MTP)</summary>
             <description></description>
         </key>
          <key type="b" name="auto-update">
@@ -189,6 +210,11 @@
         <key enum="org.gnome.Lollypop.Shuffle" name="shuffle">
             <default>'none'</default>
             <summary>Shuffle mode</summary>
+            <description></description>
+        </key>
+	<key enum="org.gnome.Lollypop.OrderBy" name="orderby">
+            <default>'artist'</default>
+            <summary>Order albums by</summary>
             <description></description>
         </key>
     </schema>

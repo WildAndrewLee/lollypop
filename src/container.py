@@ -23,7 +23,7 @@ from lollypop.view_artist import ArtistView
 from lollypop.view_radios import RadiosView
 from lollypop.view_playlists import PlaylistsView
 from lollypop.view_playlists import PlaylistsManageView, PlaylistEditView
-from lollypop.view_device import DeviceView, DeviceLocked
+from lollypop.view_device import DeviceView, DeviceLocked, DeviceMigration
 
 
 # This is a multimedia device
@@ -120,11 +120,13 @@ class Container:
             @param artist ids as [int]
             @param is_album as bool
         """
+        current = self._stack.get_visible_child()
         view = PlaylistsManageView(object_id, genre_ids, artist_ids, is_album)
         view.populate()
         view.show()
         self._stack.add(view)
         self._stack.set_visible_child(view)
+        current.disable_overlays()
 
     def show_playlist_editor(self, playlist_id):
         """
@@ -468,11 +470,13 @@ class Container:
         def setup(artists, compilations):
             if selection_list == self._list_one:
                 items = self._get_headers()
-                items.append((Type.SEPARATOR, ''))
+                if not compilations:
+                    items.append((Type.SEPARATOR, ''))
             else:
                 items = []
             if compilations:
                 items.append((Type.COMPILATIONS, _("Compilations")))
+                items.append((Type.SEPARATOR, ''))
             items += artists
             selection_list.mark_as_artists(True)
             if update:
@@ -516,9 +520,15 @@ class Container:
         device = self._devices[device_id]
         child = self._stack.get_child_by_name(device.uri)
         if child is None:
-            if DeviceView.get_files(device.uri):
-                child = DeviceView(device, self._progress)
-                self._stack.add_named(child, device.uri)
+            files = DeviceView.get_files(device.uri)
+            if files or device.uri.startswith("file:"):
+                for f in files:
+                    if DeviceView.exists_old_sync(device.uri+f):
+                        child = DeviceMigration()
+                        self._stack.add(child)
+                if child is None:
+                    child = DeviceView(device, self._progress)
+                    self._stack.add_named(child, device.uri)
             else:
                 child = DeviceLocked()
                 self._stack.add(child)
@@ -645,11 +655,8 @@ class Container:
             return
         name = mount.get_name()
         uri = mount.get_default_location().get_uri()
-        # Add / to uri if needed
-        if uri is not None and len(uri) > 1 and uri[-1:] != '/':
-            uri += '/'
-
-        if uri is not None and uri.find('mtp:') != -1:
+        if uri is not None and (
+                mount.can_eject() or uri.startswith('mtp')):
             self._devices_index -= 1
             dev = Device()
             dev.id = self._devices_index
@@ -664,8 +671,6 @@ class Container:
             Remove volume from device list
             @param mount as Gio.Mount
         """
-        if mount.get_volume() is None:
-            return
         uri = mount.get_default_location().get_uri()
         for dev in self._devices.values():
             if dev.uri == uri:
@@ -684,8 +689,8 @@ class Container:
         selected_ids = self._list_one.get_selected_ids()
         if not selected_ids:
             return
+        self._list_two.clear()
         if selected_ids[0] == Type.PLAYLISTS:
-            self._list_two.clear()
             self._list_two.show()
             if not self._list_two.will_be_selected():
                 self._update_view_playlists()
@@ -711,7 +716,6 @@ class Container:
             else:
                 self._update_view_artists([], selected_ids)
         else:
-            self._list_two.clear()
             self._setup_list_artists(self._list_two, selected_ids, False)
             self._list_two.show()
             if not self._list_two.will_be_selected():
