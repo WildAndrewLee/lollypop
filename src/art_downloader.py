@@ -29,6 +29,9 @@ class ArtDownloader:
     except:
         Wikipedia = None
 
+    _KEY = "AIzaSyBiaYluG8pVYxgKRGcc4uEbtgE9q8la0dw"
+    _ID = "015987506728554693370:waw3yqru59a"
+
     def __init__(self):
         """
             Init art downloader
@@ -63,7 +66,7 @@ class ArtDownloader:
         t.daemon = True
         t.start()
 
-    def get_duck_arts(self, search):
+    def get_google_arts(self, search):
         """
             Get arts on duck image corresponding to search
             @param search words as string
@@ -75,12 +78,20 @@ class ArtDownloader:
         if not Gio.NetworkMonitor.get_default().get_network_available():
             return []
 
+        cs_api_key = Lp().settings.get_value('cs-api-key').get_string()
+        if cs_api_key == "":
+            cs_api_key = self._KEY
+
         try:
-            f = Gio.File.new_for_uri("https://duckduckgo.com/i.js"
-                                     "?q=%s&ia=images" %
-                                     (GLib.uri_escape_string(search,
+            f = Gio.File.new_for_uri("https://www.googleapis.com/"
+                                     "customsearch/v1?key=%s&cx=%s"
+                                     "&q=%s&searchType=image" %
+                                     (cs_api_key,
+                                      self._ID,
+                                      GLib.uri_escape_string(search,
                                                              "",
-                                                             False),))
+                                                             False)))
+
             (status, data, tag) = f.load_contents()
             if not status:
                 return []
@@ -91,8 +102,8 @@ class ArtDownloader:
             decode = json.loads(data.decode('utf-8'))
             if decode is None:
                 return urls
-            for item in decode['results']:
-                urls.append(item['image'])
+            for item in decode['items']:
+                urls.append(item['link'])
         except:
             pass
 
